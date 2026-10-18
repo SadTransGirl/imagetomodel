@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imagetomodel"
+version = "0.1.0"
+description = "A 3D model from a piece of pixel art, faithful to it, for LGFR3D"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "Pillow>=9"]
+
+[project.scripts]
+imagetomodel = "imagetomodel.cli:main"
+
+[tool.setuptools]
+packages = ["imagetomodel"]
