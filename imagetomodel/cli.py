@@ -43,7 +43,20 @@ def main(argv=None):
     b.add_argument("--game-art", action="store_true", help="the sprite is the game's own picture: wear that, paint nothing")
     b.add_argument("--views", default="three-quarter,side,front", help="which other views to draw (%s)" % ",".join(VIEWS))
     b.add_argument("--preview-scale", type=int, default=4)
+    r = sub.add_parser("room", help="a room from a screenshot of it")
+    r.add_argument("shot")
+    r.add_argument("-o", "--out", default="out")
+    r.add_argument("--name", help="the model's name (the file's name)")
+    r.add_argument("--scale", type=int, help="how many times the shot was scaled up (found from its pixel blocks)")
+    r.add_argument("--spec", help="a JSON file: {\"wall_rows\": N, \"tiles\": {\"x,y\": \"floor\"|\"wall\"|\"wall_side\"|\"thing\"|\"void\"}, \"front_height\": px}")
+    r.add_argument("--front-height", type=float, default=16.0, help="how tall a free-standing thing's front is (pixels, unsquashed)")
+    r.add_argument("--low-height", type=float, default=8.0, help="how tall a thing of one tile is (pixels)")
+    r.add_argument("--wall-thick", type=float, default=4.0, help="how thick the walls down the sides are (pixels)")
+    r.add_argument("--views", default="three-quarter,front", help="which other views to draw (%s)" % ",".join(VIEWS))
+    r.add_argument("--preview-scale", type=int, default=4)
     a = ap.parse_args(argv)
+    if a.command == "room":
+        return room_main(a)
 
     ground = [hex_colour(c) for c in a.ground.split(",")] if a.ground else None
     sprite = Sprite.load(a.sprite, scale=a.scale, ground=ground)
@@ -83,6 +96,61 @@ def main(argv=None):
           % (score["exact"] * 100, score["covered"] * 100, score["extra"], score["colour_distance"]))
     if thing is None:
         print("note: the model's prints are unset (it stands nowhere yet): pass --catalog DIR --thing ID, or bring %s.glb back with LGFR3D's tools/kit.py import" % name)
+    return 0
+
+
+def room_main(a):
+    from . import room
+    sprite = Sprite.load(a.shot, scale=a.scale)
+    room.mark_void(sprite)
+    name = a.name or os.path.splitext(os.path.basename(a.shot))[0]
+    spec = json.load(open(a.spec)) if a.spec else {}
+    g = room.grid(sprite)
+    info = room.label(sprite, g, spec)
+    things = room.runs(info, g)
+    mesh = room.build(sprite, g, info, things, front_height=a.front_height, low_height=a.low_height,
+                      wall_thick=a.wall_thick, spec=spec)
+    cut = room.cutouts(sprite, g, info, things)
+    os.makedirs(a.out, exist_ok=True)
+    stem = os.path.join(a.out, name)
+    with open(stem + "-labels.json", "w") as f:
+        json.dump({"grid": g, "wall_rows": info["wall_rows"], "wall_first": info["wall_first"], "labels": info["labels"],
+                   "things": things, "floor_colours": info["floor_colours"], "wall_colours": info["wall_colours"]}, f, indent=1)
+    room.labels_picture(sprite, g, info, things, scale=a.preview_scale).save(stem + "-labels.png")
+    # the whole room as one model; and each thing as a model of its own tiles
+    whole = lgfr.model(mesh, sprite, "imagetomodel room %s" % name, extra_cut=cut)
+    whole["room"] = {"grid": g, "wall_rows": info["wall_rows"]}
+    lgfr.write(stem + ".lgfr.json", whole)
+    things_dir = stem + "-things"
+    os.makedirs(things_dir, exist_ok=True)
+    for k, t in enumerate(things):
+        if t["kind"] == "on-wall":
+            continue
+        tx, (ta, tb) = t["x"], t["rows"]
+        # (its block: its tiles, in the grid's tiles of the picture)
+        bx, by = (g["ox"] // 16) + tx, (g["oy"] // 16) + ta
+        one = lgfr.model(mesh, sprite, "imagetomodel %s thing %d" % (name, k), block=(bx, by, 1, tb - ta + 1),
+                         extra_cut=cut, only=lambda nm, k=k: nm.split(":")[0] == "thing-%d" % k)
+        one["imagetomodel"]["tile"] = [tx, ta, tb]
+        lgfr.write(os.path.join(things_dir, "%s-thing-%d.lgfr.json" % (name, k)), one)
+    gltf.write_glb(stem + ".glb", mesh, sprite, name=name, split=True, cut=cut)
+    gltf.write_obj(stem + ".obj", mesh, sprite, name=name, split=True, cut=cut)
+    # (the faithfulness: with the wall's pixels cut from the things at the wall's foot, the
+    # wall behind shows there: the same pixels)
+    score, sheet = faithful(mesh, sprite)
+    sheet = sheet.resize((sheet.width * a.preview_scale, sheet.height * a.preview_scale), 0)
+    sheet.save(stem + "-faithful.png")
+    for view in [v for v in a.views.split(",") if v]:
+        render(mesh, sprite.rgba, view, scale=a.preview_scale).save("%s-%s.png" % (stem, view))
+    kinds = {}
+    for t in things:
+        kinds[t["kind"]] = kinds.get(t["kind"], 0) + 1
+    print("%s: %dx%d (scale %d), grid at %d,%d: %d x %d tiles, the wall %d rows from row %d, things: %s; %d triangles"
+          % (name, sprite.W, sprite.H, sprite.scale, g["ox"], g["oy"], g["cols"], g["rows"], info["wall_rows"], info["wall_first"],
+             ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), len(mesh)))
+    print("faithful: %.1f%% of the picture's pixels exact, %.1f%% covered, %d drawn past it, colour distance %.3f"
+          % (score["exact"] * 100, score["covered"] * 100, score["extra"], score["colour_distance"]))
+    print("labels: %s-labels.png (W wall, S side wall, T thing: h hanging, s standing at the wall, A against the wall, b a box); correct them with --spec" % name)
     return 0
 
 

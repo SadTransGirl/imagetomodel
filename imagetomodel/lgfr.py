@@ -25,24 +25,37 @@ def catalog_thing(catalog_dir, thing_id):
     return thing
 
 
-def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_all=True, note=None):
-    cols, rows = sprite.cols, sprite.rows
+def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_all=True, note=None,
+          block=None, extra_cut=None, only=None):
+    """The model. `block`: (tx, ty, cols, rows), a block of the picture's tiles the model is
+    of (a thing of a room): the model's pixels count from that block's top left. `only`: a
+    function of a polygon's name, which polygons to take. `extra_cut`: (x, y) pairs of the
+    picture to clear on the thing alone, besides what isn't drawn."""
+    if block is None:
+        block = (0, 0, sprite.cols, sprite.rows)
+    bx, by, cols, rows = block
     W, H = cols * PX, rows * PX
+    dx, dy = bx * PX, by * PX
     tris, uvs = [], []
-    for _, pts, tex in mesh.triangles():
+    for nm, pts, tex in mesh.triangles():
+        if only is not None and not only(nm):
+            continue
         for p in pts:
-            tris.extend(round(v, 3) for v in p)
+            tris.extend((round(p[0] - dx, 3), round(p[1], 3), round(p[2] - dy, 3)))
         for t in tex:
-            uvs.extend((round(W + t[0], 3), round(t[1], 3)))
+            uvs.extend((round(W + t[0] - dx, 3), round(t[1] - dy, 3)))
     cut = []
     paint = {}
-    for y in range(sprite.H):
-        for x in range(sprite.W):
+    cleared = set()
+    for k in range(0, len(extra_cut or []) - 1, 2):
+        cleared.add((int(extra_cut[k]), int(extra_cut[k + 1])))
+    for y in range(dy, min(sprite.H, dy + H)):
+        for x in range(dx, min(sprite.W, dx + W)):
             c = sprite.colour(x, y)
-            if c is None:
-                cut.extend((W + x, y))
+            if c is None or (x, y) in cleared:
+                cut.extend((W + x - dx, y - dy))
             elif paint_all:
-                paint.setdefault("%02x%02x%02x" % c, []).extend((W + x, y))
+                paint.setdefault("%02x%02x%02x" % c, []).extend((W + x - dx, y - dy))
     if thing is not None:
         tiles = [[int(t) for t in r] for r in thing["tiles"]]
         prints = [[int(q) for q in r] for r in thing["prints"]]

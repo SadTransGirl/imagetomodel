@@ -41,6 +41,60 @@ Each output folder has `NAME-faithful.png`: the sprite, the model from the GBA's
 what differs (red), with the score printed. Other views (`--views three-quarter,side,
 front,back,top`) show the shape.
 
+## Rooms
+
+```sh
+imagetomodel room center-1f.png -o out
+```
+
+A screenshot of a room (the GBA's own 240×160 frame, or art drawn its way, at any scale)
+is cut on its 16-pixel grid, wherever the grid lies on it (the screen scrolls with the
+player: the offset at which the most tiles repeat is the grid's). Each tile is told from
+its picture alone:
+
+- **void**: the black beyond the room (cleared, so nothing is drawn there);
+- **wall**: the rows at the top whose plain tile repeats across the room (the back wall),
+  with what hangs on it painted on its face;
+- **wall_side**: the wall's ends down the outermost columns, and a column's own repeated
+  tile when it isn't the floor's (a wall down the side of the room);
+- **floor**: the tile repeated most, and tiles of its colours or their shades (a shadow,
+  a lamp's glow), and tiles half on the void's edge (a mat, a corner cut);
+- **thing**: the rest.
+
+The room is built as the port builds rooms, unsquashed (the game squashes rooms, and
+models in them, as it builds them): the floor flat; the back wall a slab its rows tall,
+its face the picture a pixel a pixel; a wall down each side; and each thing a box, read
+column by column:
+
+- a thing on the wall's rows with the floor under it **hangs on the wall** (a poster):
+  painted there;
+- a thing on the wall's rows with a thing under it is one with it and **stands tall
+  against the wall** (a plant and its pot, a shelf, a machine), a box from the wall's
+  face to its foot;
+- a thing coming down from the wall onto a band of things alike right across the room
+  (a counter) stands with **its foot on the counter's back edge**, and the counter's
+  tile starts the counter's own run;
+- a thing in the room **stands free**: its front standing at its foot (`--front-height`,
+  16 px; a thing of one tile `--low-height`, 8 px: a stool, a cushion), its top lying
+  back from its head, its sides plain.
+
+The GBA's picture can't tell a tall front from a deep top, so a reading is a guess, and
+`NAME-labels.png` shows it: each tile's label (W wall, S side wall, T thing) and each
+thing's kind (h hanging, A against the wall, b a box, B a box standing tall). Correct it
+with `--spec`: `{"wall_rows": 2, "tiles": {"9,6": "box", "7,2": "floor"}}`, where a tile
+may be `void`, `floor`, `wall`, `wall_side`, `thing`, or `box` (a thing standing tall) and
+`counter` (a thing standing free, low) to force its kind.
+
+What's written is as for a building, and besides: `NAME-labels.json` (the grid, the wall's
+rows, the labels, the things), `NAME-things/NAME-thing-N.lgfr.json` (each thing as a model
+of its own tiles, as the port keeps one), and the `.glb`/`.obj` with an object per thing
+(and `floor`, `wall`, `side-left`, `side-right`), so that `tools/kit.py import` makes a
+model of each thing, standing wherever its pictures are, in every room with it.
+
+A thing seen from the GBA is used twice when another stands on it (a machine on a counter):
+its tile is the counter's top and the machine's foot, both faithful; from other angles
+the machine's lower rows show on the counter's top as well.
+
 ## What's written
 
 | file | what |
@@ -105,8 +159,10 @@ imagetomodel/geometry.py   faces with texture coordinates from the GBA's project
 imagetomodel/render.py     pictures of the model (a small rasterizer), the faithfulness score
 imagetomodel/gltf.py       .glb and .obj in the kit's conventions
 imagetomodel/lgfr.py       the model JSON as LGFR3D keeps it
-imagetomodel/cli.py        imagetomodel building ...
+imagetomodel/room.py       a room from a screenshot: the grid, each tile's label, the things, the mesh
+imagetomodel/cli.py        imagetomodel building ..., imagetomodel room ...
 tests/synthetic.py         a building drawn by hand, in the GBA's manner, for the tests
+tests/synthetic_room.py    a room, likewise
 ```
 
 Python 3.10+, numpy and Pillow. `python3 -m pytest tests`.
@@ -115,8 +171,8 @@ No Nintendo art is in this repository: the tests draw their own building.
 
 ## Next
 
-- rooms: a screenshot of a room cut on its 16-pixel grid, each tile labelled from its
-  picture (floor, wall, counter, box, plant...) and built with the port's piece kinds;
+- rooms: a person standing in the screenshot (masked out), round things (a can, a pot)
+  turned round, plants puffed out, stairs as steps, water;
 - more roof styles read from the art: a ridge with two slopes (a gable), the eave that
   curves down over the wall (a Center's, a Mart's), a flat roof with a rim;
 - things on the roof (a chimney, a skylight), porches set forward.
