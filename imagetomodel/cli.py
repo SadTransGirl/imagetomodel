@@ -150,7 +150,7 @@ def room_main(a):
              ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), len(mesh)))
     print("faithful: %.1f%% of the picture's pixels exact, %.1f%% covered, %d drawn past it, colour distance %.3f"
           % (score["exact"] * 100, score["covered"] * 100, score["extra"], score["colour_distance"]))
-    print("labels: %s-labels.png (W wall, S side wall, T thing: h hanging, s standing at the wall, A against the wall, b a box); correct them with --spec" % name)
+    print("labels: %s-labels.png (W wall, S side wall, T thing: h hanging, A against the wall, b a box, B a box standing tall, c a cutout); correct them with --spec" % name)
     return 0
 
 

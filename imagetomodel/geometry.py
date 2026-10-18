@@ -14,8 +14,18 @@ class Mesh:
     """Polygons (3 or more corners, flat, anticlockwise seen from outside), each corner with
     a texture coordinate in the sprite's pixels (u across, v down from its top)."""
 
-    def __init__(self):
+    def __init__(self, strip_v=None):
         self.polys = []            # [(name, [(x, y, z), ...], [(u, v), ...])]
+        self.palette = []          # plain colours painted in a strip under the sprite
+        self.strip_v = strip_v     # (the strip's first row: the sprite's height)
+
+    def plain(self, colour):
+        """A texture coordinate of a plain colour: a pixel painted in the strip under the
+        sprite (the kit's painting strip), for the faces the GBA never drew."""
+        colour = tuple(int(c) for c in colour[:3])
+        if colour not in self.palette:
+            self.palette.append(colour)
+        return (self.palette.index(colour) + 0.5, (self.strip_v or 0) + 0.5)
 
     def face(self, points, uv=None, name=""):
         """A polygon. `uv` None: each corner wears where the GBA draws it (the faithful

@@ -36,6 +36,8 @@ def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_al
     bx, by, cols, rows = block
     W, H = cols * PX, rows * PX
     dx, dy = bx * PX, by * PX
+    strip = max(H, 32)                                # (the kit's painting strip under the picture)
+    palette = list(getattr(mesh, "palette", []) or [])
     tris, uvs = [], []
     for nm, pts, tex in mesh.triangles():
         if only is not None and not only(nm):
@@ -43,7 +45,10 @@ def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_al
         for p in pts:
             tris.extend((round(p[0] - dx, 3), round(p[1], 3), round(p[2] - dy, 3)))
         for t in tex:
-            uvs.extend((round(W + t[0] - dx, 3), round(t[1] - dy, 3)))
+            if palette and t[1] >= sprite.H:          # (a plain colour: in the strip)
+                uvs.extend((round(W + int(t[0]) + 0.5, 3), H + 0.5))
+            else:
+                uvs.extend((round(W + t[0] - dx, 3), round(t[1] - dy, 3)))
     cut = []
     paint = {}
     cleared = set()
@@ -56,6 +61,8 @@ def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_al
                 cut.extend((W + x - dx, y - dy))
             elif paint_all:
                 paint.setdefault("%02x%02x%02x" % c, []).extend((W + x - dx, y - dy))
+    for i, c in enumerate(palette):
+        paint.setdefault("%02x%02x%02x" % tuple(c), []).extend((W + i, H))
     if thing is not None:
         tiles = [[int(t) for t in r] for r in thing["tiles"]]
         prints = [[int(q) for q in r] for r in thing["prints"]]
@@ -63,7 +70,7 @@ def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_al
         tiles = [[-1] * cols for _ in range(rows)]
         prints = [[UNPLACED] * cols for _ in range(rows)]
     out = {"name": name, "size": [cols, rows], "tiles": tiles, "prints": prints, "priority": 1,
-           "pieces": [{"kind": "mesh", "canvas": [2 * W, H], "whole_at": [0, 0], "object_at": [W, 0],
+           "pieces": [{"kind": "mesh", "canvas": [2 * W, H + strip], "whole_at": [0, 0], "object_at": [W, 0],
                        "cut": cut, "tris": tris, "uvs": uvs, "paint": paint}],
            "imagetomodel": {"paint_all": bool(paint_all), "sprite": [sprite.W, sprite.H], "scale": sprite.scale}}
     if thing_id:

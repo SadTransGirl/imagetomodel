@@ -62,25 +62,34 @@ its picture alone:
 - **thing**: the rest.
 
 The room is built as the port builds rooms, unsquashed (the game squashes rooms, and
-models in them, as it builds them): the floor flat; the back wall a slab its rows tall,
-its face the picture a pixel a pixel; a wall down each side; and each thing a box, read
-column by column:
+models in them, as it builds them): the floor flat; the back wall a thin slab its rows
+tall (`--wall-thick`, 4 px), its face the picture a pixel a pixel, its top the band's
+colour; a thin wall down each side where the art has one, and across each corner the art
+cuts on the diagonal; and each thing read column by column:
 
-- a thing on the wall's rows with the floor under it **hangs on the wall** (a poster):
-  painted there;
-- a thing on the wall's rows with a thing under it is one with it and **stands tall
-  against the wall** (a plant and its pot, a shelf, a machine), a box from the wall's
+- a thing on the wall's rows with plain floor under it **hangs on the wall** (a poster, a
+  map): painted there;
+- a thing on the wall's rows with a thing (or a pot drawn on the floor) under it is one
+  with it and **stands tall against the wall** (a shelf, a machine), a box from the wall's
   face to its foot;
 - a thing coming down from the wall onto a band of things alike right across the room
   (a counter) stands with **its foot on the counter's back edge**, and the counter's
   tile starts the counter's own run;
-- a thing in the room **stands free**: its front standing at its foot (`--front-height`,
-  16 px; a thing of one tile `--low-height`, 8 px: a stool, a cushion), its top lying
-  back from its head, its sides plain.
+- a thing in the room **stands free**: a box with its front standing at its foot
+  (`--front-height`, 16 px; a thing of one tile `--low-height`, 8 px: a stool, a
+  cushion) and its top lying back from its head;
+- a thing standing on its own on a background (its own pixels at least as tall as wide,
+  clear of the tile's sides, on the floor's or the wall's colours or a counter's) is a
+  **cutout**, the GBA's picture standing with the background cut away (a plant, a flower
+  or a sign on a counter's top), and what's behind it wears a plain tile instead.
+
+A box's sides and back are its own colour (its front's, outlines aside), a little darker;
+every other face the GBA never drew wears a plain colour painted in the canvas's strip.
 
 The GBA's picture can't tell a tall front from a deep top, so a reading is a guess, and
 `NAME-labels.png` shows it: each tile's label (W wall, S side wall, T thing) and each
-thing's kind (h hanging, A against the wall, b a box, B a box standing tall). Correct it
+thing's kind (h hanging, A against the wall, b a box, B a box standing tall, c a cutout).
+Correct it
 with `--spec`: `{"wall_rows": 2, "tiles": {"9,6": "box", "7,2": "floor"}}`, where a tile
 may be `void`, `floor`, `wall`, `wall_side`, `thing`, or `box` (a thing standing tall) and
 `counter` (a thing standing free, low) to force its kind.
@@ -93,7 +102,9 @@ model of each thing, standing wherever its pictures are, in every room with it.
 
 A thing seen from the GBA is used twice when another stands on it (a machine on a counter):
 its tile is the counter's top and the machine's foot, both faithful; from other angles
-the machine's lower rows show on the counter's top as well.
+the machine's lower rows show on the counter's top as well. The walls standing at the
+room's sides and corners cover, from the GBA's angle, the rows above them (the GBA drew
+them flat), so a room scores a little under a building.
 
 ## What's written
 

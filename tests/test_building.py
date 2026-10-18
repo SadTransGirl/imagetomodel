@@ -124,7 +124,7 @@ def test_lgfr_model_holds_the_sprite_and_stands_nowhere_until_placed():
     assert model["size"] == [5, 5]
     assert all(p == lgfr.UNPLACED for row in model["prints"] for p in row)
     piece = model["pieces"][0]
-    assert piece["kind"] == "mesh" and piece["canvas"] == [160, 80]
+    assert piece["kind"] == "mesh" and piece["canvas"] == [160, 160]   # (the kit's painting strip under the picture)
     assert len(piece["tris"]) == len(piece["uvs"]) // 2 * 3
     assert len(piece["tris"]) // 9 == len(mesh)
     painted = sum(len(v) // 2 for v in piece["paint"].values())

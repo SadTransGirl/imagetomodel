@@ -44,6 +44,11 @@ def render(mesh, texture, view="three-quarter", scale=4, shade=None, frame=None,
     frame for the GBA view); else the model's extent plus a margin. `shade`: faces lit a
     little by their slant (on for every view but the GBA's)."""
     tex = np.asarray(texture)
+    if getattr(mesh, "palette", None):
+        strip = np.zeros((1, tex.shape[1], 4), dtype=np.uint8)
+        for i, c in enumerate(mesh.palette[:tex.shape[1]]):
+            strip[0, i] = (*c, 255)
+        tex = np.concatenate([tex, strip], axis=0)
     th, tw = tex.shape[:2]
     cam = _camera(view)
     if shade is None:
