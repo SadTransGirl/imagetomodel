@@ -140,3 +140,100 @@ def test_the_floor_shadow_beside_a_thing_is_not_the_thing():
     assert {(14, y) for y in range(4, 14)} <= shadow and {(x, 13) for x in range(4, 15)} <= shadow
     # (none of the box itself: its outline and its grey-free body stay)
     assert not shadow & {(x, y) for y in range(2, 13) for x in range(2, 14)}
+
+
+def test_a_stepped_profile_stands_and_lies_in_turn():
+    s = _box_sprite()
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    g = voxel.Grid()
+    kinds = voxel.segments_kinds([["up", 3], ["back", 4], ["up", "rest"]], 13)
+    shown = voxel.unproject_profile(g, s, own, kinds)
+    score, _ = faithful(voxel.mesh_of(g, strip_v=16, strip_w=16), s)
+    assert score["exact"] == 1.0, score
+    # (a lip three tall, a tray four deep behind it, a panel standing behind that)
+    col = sorted((y, z) for (x, y, z) in g.cubes if x == 6)
+    assert max(y for y, z in col if z == 12) == 2
+    assert max(y for y, _ in col) > 2 and min(z for _, z in col) < 9
+    assert shown[(6, 12)] == (0, 12)
+
+
+def test_recess_and_raise():
+    s = _box_sprite()
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    g = voxel.Grid()
+    kinds = voxel.box_kinds(lambda x, t, zf: 5, own)
+    voxel.unproject_profile(g, s, own, kinds, recess={(6, 10): 2}, raised={(6, 4)})
+    assert (6, 2, 12) not in g.cubes and (6, 2, 10) in g.cubes        # (set two in)
+    assert (6, 5, 9) in g.cubes                                       # (a cube on the top)
+
+
+def test_lathe_is_round_and_skips_the_outline():
+    im = np.zeros((16, 16, 4), dtype=np.uint8)
+    for y in range(4, 14):
+        for x in range(4, 12):
+            edge = x in (4, 11) or y in (4, 13)
+            im[y, x] = (40, 40, 60, 255) if edge else (80, 200, 90, 255)
+    s = Sprite(Image.fromarray(im, "RGBA"))
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    g = voxel.Grid()
+    voxel.lathe(g, s, own, 0, 20, "pot")
+    zs = {z for (x, y, z) in g.cubes if y == 4}
+    assert max(zs) - min(zs) >= 4                                     # (deep as it is wide)
+    assert (40, 40, 60) not in {c for (x, y, z), c in g.cubes.items() if 0 < y < 9}
+
+
+def test_fixes_by_fingerprint_and_tile():
+    s = Sprite(draw_room())
+    room.mark_void(s)
+    g = room.grid(s)
+    info = room.label(s, g)
+    things = room.runs(info, g)
+    objs = room.objects(info, g, things)
+    stool = next(o for o in objs if o["columns"] == [9, 9] and o["rows"] == [6, 6])
+    fp = room.fingerprint(s, stool)
+    assert len(fp) == 12 and fp == room.fingerprint(s, stool)
+    fixes = room.load_fixes(spec={"objects": {fp: {"name": "stool", "front": 3}}})
+    assert room.fix_for(s, stool, fixes)["name"] == "stool"
+    fixes = room.load_fixes(spec={"objects": {"9,6": {"name": "by tile"}}})
+    assert room.fix_for(s, stool, fixes)["name"] == "by tile"
+    counter = next(o for o in objs if o["columns"] == [2, 8])
+    cfp = room.fingerprint(s, counter)
+    grid, objs2 = room.build_voxels(s, g, info, things, fixes=room.load_fixes(spec={"objects": {cfp: {"front": 3}}}))
+    k = next(i for i, o in enumerate(objs2) if o["columns"] == [2, 8])
+    assert max(y for (x, y, z), o in grid.owner.items() if o == "thing-%d" % k) == 2
+
+
+def _escalator_sprite():
+    """Two handrails (orange) climbing to the left over glass, treads between them."""
+    W, H = 64, 48
+    im = np.zeros((H, W, 4), dtype=np.uint8)
+    im[:, :] = (231, 222, 156, 255)                                    # (the floor)
+    RAIL, GLASS, DARK, TREAD = (255, 90, 41), (198, 222, 206), (82, 82, 107), (148, 148, 165)
+    for x in range(0, 30):
+        rise = max(0, (16 - x) // 2)
+        for y in range(18, 34):
+            im[y, x] = (*DARK, 255)
+            if y % 2 == 0 and x % 8 in (2, 3, 4, 5):
+                im[y, x] = (*TREAD, 255)
+        for base, glass_rows in ((10, 6), (34, 6)):
+            r = base - rise
+            im[r, x] = (*RAIL, 255)
+            for j in range(1, glass_rows):
+                im[r + j, x] = (*GLASS, 255)
+    return Sprite(Image.fromarray(im, "RGBA"))
+
+
+def test_an_escalator_is_built_climbing_where_its_handrails_climb():
+    s = _escalator_sprite()
+    o = {"own": {(x, y) for y in range(48) for x in range(30) if tuple(s.rgba[y, x, :3]) != (231, 222, 156)},
+         "bbox": [0, 2, 30, 40]}
+    assert room._treads(s, 0, 16) and not room._treads(s, 40, 16)
+    g = voxel.Grid()
+    room.build_escalator(g, s, o, {}, "escalator")
+    rail = (255, 90, 41)
+    tops = {}
+    for (x, y, z), c in g.cubes.items():
+        if c == rail:
+            tops[x] = max(tops.get(x, 0), y)
+    assert tops[0] > tops[25]                                         # (higher at the left)
+    assert len({z for (x, y, z), c in g.cubes.items() if c == rail}) >= 2   # (two balustrades)

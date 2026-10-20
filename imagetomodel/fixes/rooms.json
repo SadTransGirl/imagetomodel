@@ -1,0 +1,25 @@
+{
+  "_comment": "Things set by hand, by fingerprint (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows) a cube proud; drop: pixels that aren't the thing's; shape: box, round, slab, escalator; front: its front's rows; back_to_wall.",
+  "afb970d91aaf": {
+    "name": "Pokemon Center shelf",
+    "profile": [["up", 18], ["back", "rest"]],
+    "recess": [{"rows": [14, 16], "cols": [4, 25], "depth": 3}, {"rows": [21, 23], "cols": [4, 25], "depth": 3}]
+  },
+  "b5891dbe3f44": {
+    "name": "Pokemon Center PC",
+    "profile": [["up", 7], ["back", 5], ["up", 10], ["back", "rest"]],
+    "recess": [{"rows": [11, 17], "cols": [3, 12], "depth": 1}],
+    "raise": {"colours": ["ded6e7"], "rows": [21, 23]}
+  },
+  "503ff02e3064": {
+    "name": "Pokemon Center healing machine",
+    "profile": [["up", 5], ["back", 14], ["up", 6], ["back", "rest"]],
+    "raise": {"colours": ["6bc66b"], "rows": [9, 22]}
+  },
+  "c9d9b0e63f59": {
+    "name": "Pokemon Center nurse's PC",
+    "profile": [["back", 4], ["up", 6], ["back", "rest"]],
+    "profiles": [{"cols": [0, 3], "profile": [["back", 4], ["up", 1], ["back", "rest"]]}],
+    "drop": [{"rows": [0, 4]}]
+  }
+}

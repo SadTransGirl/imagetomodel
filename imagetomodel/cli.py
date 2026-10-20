@@ -52,6 +52,7 @@ def main(argv=None):
     r.add_argument("--front-height", default="auto", help="how tall a free-standing thing's front is (pixels, unsquashed): 'auto' reads it from the art's shading (the darker band along its bottom)")
     r.add_argument("--low-height", type=float, default=8.0, help="how tall a thing of one tile is (pixels)")
     r.add_argument("--wall-thick", type=float, default=4.0, help="how thick the walls down the sides are (pixels)")
+    r.add_argument("--fixes", action="append", default=[], help="a JSON file of things set by hand, by fingerprint (see NAME-labels.json); the library shipped with the tool always applies")
     r.add_argument("--style", choices=("voxel", "faces"), default="voxel", help="voxel: a cube a pixel, as made in MagicaVoxel (with .vox files); faces: boxes with their sides painted, in relief")
     r.add_argument("--relief", type=int, default=3, help="how many pixels the lightest pixel of a thing's face stands out over the darkest, as voxel art (0: flat)")
     r.add_argument("--thick", type=float, default=2.0, help="how thick a cutout (a plant, a flower) is (pixels)")
@@ -179,13 +180,23 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
     """The room in true voxels: a .vox for MagicaVoxel, the port's model, a .glb and .obj
     meshed from the cubes; and each thing the same, in a folder of its own."""
     from . import room, voxel
+    fixes = room.load_fixes(a.fixes, spec)
     grid, objs = room.build_voxels(sprite, g, info, things, front_height=front, low_height=a.low_height,
-                                   wall_thick=int(a.wall_thick), spec=spec, thick=int(a.thick))
+                                   wall_thick=int(a.wall_thick), spec=spec, thick=int(a.thick), fixes=fixes)
     os.makedirs(a.out, exist_ok=True)
     stem = os.path.join(a.out, name)
     with open(stem + "-labels.json", "w") as f:
+        listed = []
+        for k, o in enumerate(objs):
+            entry = {key: v for key, v in o.items() if key not in ("own", "tiles")}
+            entry["owner"] = "thing-%d" % k
+            entry["fingerprint"] = room.fingerprint(sprite, o)
+            fix = room.fix_for(sprite, o, fixes)
+            if fix:
+                entry["fixed"] = fix.get("name", True)
+            listed.append(entry)
         json.dump({"grid": g, "wall_rows": info["wall_rows"], "wall_first": info["wall_first"], "labels": info["labels"],
-                   "things": things, "objects": [{k: v for k, v in o.items() if k not in ("own", "tiles")} for o in objs],
+                   "things": things, "objects": listed,
                    "floor_colours": info["floor_colours"], "wall_colours": info["wall_colours"]}, f, indent=1)
     room.labels_picture(sprite, g, info, things, scale=a.preview_scale).save(stem + "-labels.png")
     voxel.write_vox(stem + ".vox", grid)
@@ -233,7 +244,11 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
              ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), len(grid), len(mesh.polys)))
     print("faithful: %.1f%% of the picture's pixels exact, %.1f%% covered, %d drawn past it, colour distance %.3f"
           % (score["exact"] * 100, score["covered"] * 100, score["extra"], score["colour_distance"]))
+    fixed = [room.fix_for(sprite, o, fixes).get("name") for o in objs]
+    fixed = [f for f in fixed if f]
     print("%s.vox for MagicaVoxel; %d things on their own in %s/thing-N/ (a .vox, .glb, .obj and the port's model each)" % (name, made, things_dir))
+    if fixed:
+        print("set by hand (fixes): %s" % ", ".join(fixed))
     return 0
 
 

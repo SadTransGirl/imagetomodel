@@ -81,6 +81,50 @@ thing. Things are cut from their background pixel by pixel: on the wall's rows a
 the plain wall tile of the row most like theirs (the wall's scallops change from tile to
 tile), on a counter against its colour and its edges.
 
+Some things are found and built their own way:
+
+- **a counter** is one object, its front and its wings (the runs of things in a band of the
+  same colour across the room, touching), so its U shape comes from how far back each
+  column is drawn; what stands on it (a flower, a machine, a PC) is cut from its top,
+  which wears its own colour there;
+- **round things** (a plant, a flower: a thing standing on its own on a background) are
+  turned like a lathe, each row a slice as round as the row is wide, the sprite's outline
+  left out of the turning;
+- **an escalator** (tiles drawn as treads, with the things touching them) is built as
+  steps between two glass balustrades, a handrail along each, climbing where its handrails
+  climb in the picture;
+- **the shadow** the GBA draws beside a thing on the floor is the floor's.
+
+### Fixes: things set by hand
+
+A sprite can't always say what stands and what lies: a machine can be a lip standing, a
+tray lying, a panel standing behind it. A **fix** says, by the thing's fingerprint (its
+own pixels and colours; each thing's is in `NAME-labels.json`), so it holds for that thing
+in every room drawn with it, as LGFR3D's own `building_fixes.json` does:
+
+```json
+{
+  "503ff02e3064": {
+    "name": "Pokemon Center healing machine",
+    "profile": [["up", 5], ["back", 14], ["up", 6], ["back", "rest"]],
+    "raise": {"colours": ["6bc66b"], "rows": [9, 22]}
+  }
+}
+```
+
+- `profile`: up from the thing's foot, how many rows stand (`up`) and lie (`back`) in turn,
+  `rest` the rows left; `profiles`: one for a range of columns (a keyboard lying beside a
+  box);
+- `recess`: rows and columns (from the thing's box's corner) set `depth` cubes in (a
+  shelf's inside, a screen);
+- `raise`: pixels of these colours (within rows) a cube proud (a tray's balls, keys);
+- `drop`: pixels that aren't the thing's; `front`: its front's height; `shape`: `box`,
+  `round`, `slab`, `escalator`; `back_to_wall`.
+
+The library shipped with the tool (`imagetomodel/fixes/rooms.json`) has the Pokemon
+Center's shelf, PC, healing machine and nurse's PC; `--fixes FILE` adds more, and a spec's
+`"objects"` may key a fix by the thing's first tile (`"5,1"`) for one room.
+
 `--style faces` builds the earlier way instead: boxes with their sides painted from the
 art and their faces in relief.
 
@@ -240,8 +284,9 @@ No Nintendo art is in this repository: the tests draw their own building.
 
 ## Next
 
-- rooms: stairs as steps, a person standing in the screenshot (masked out), round things
-  (a can, a pot) turned round, what hangs on the wall standing a cube proud of it, water;
+- rooms: stairs drawn as stairs (not an escalator), a person standing in the screenshot
+  (masked out), what hangs on the wall (a TV, a map) standing proud of it, water; more
+  fixes for the things of other rooms;
 - buildings in true voxels too;
 - more roof styles read from the art: a ridge with two slopes (a gable), the eave that
   curves down over the wall (a Center's, a Mart's), a flat roof with a rim;

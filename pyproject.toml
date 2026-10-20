@@ -14,3 +14,6 @@ imagetomodel = "imagetomodel.cli:main"
 
 [tool.setuptools]
 packages = ["imagetomodel"]
+
+[tool.setuptools.package-data]
+imagetomodel = ["fixes/*.json"]
