@@ -1836,15 +1836,28 @@ def build_escalator(grid, sprite, o, fix, owner):
     tread = lights.most_common(1)[0][0] if lights else (150, 150, 160)
     from .voxel import _darkest as darkest_of
     dark = darkest_of(sprite, own)
+    # (the grate's rhythm: which rows of the steps are its light dashes, odd or even)
+    rows_with = Counter(v % 2 for (x, v) in own if sprite.colour(x, v) == tread)
+    parity = rows_with.most_common(1)[0][0] if rows_with else 0
     end = max(cols) if rises_left else min(cols)
     for x in range(x0, x1):
         if x not in near and not (min(cols) <= x <= max(cols)):
             continue
         r = rise(x)
-        # the steps between the balustrades: a stair of treads, solid under
+        # the steps between the balustrades, solid under: each tread's top the grate the
+        # art draws there (a cube's top shows on row z - y - 1); where a balustrade is drawn
+        # over it, the grate's stripes carried on, every other row
         for z in range(z_far + 1, z_near - 2):
             for y in range(0, r + 1):
-                grid.set(x, y, z, tread if (y == r and x % 2 == 0) else dark, owner)
+                c = dark
+                if y == r:
+                    row = z - y - 1
+                    art = sprite.colour(x, row) if (x, row) in own else None
+                    if art is not None and art in (tread, dark):
+                        c = art
+                    else:
+                        c = tread if row % 2 == parity else dark
+                grid.set(x, y, z, c, owner)
         # the balustrades: glass, its handrail along the top, its edges dark
         for zb in ((z_far - 1, z_far), (z_near - 2, z_near - 1)):
             for z in zb:
