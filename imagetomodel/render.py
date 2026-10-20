@@ -6,7 +6,7 @@ import math
 import numpy as np
 from PIL import Image
 
-from .geometry import normal
+from .geometry import normal, strip_pixels
 
 VIEWS = {
     # yaw (degrees round the up axis, 0 from the south), pitch (degrees looking down)
@@ -38,16 +38,20 @@ def _screen(points, cam):
     return np.stack([q[:, 0], -q[:, 1], q[:, 2]], axis=1)
 
 
-def render(mesh, texture, view="three-quarter", scale=4, shade=None, frame=None, margin=2, background=(0, 0, 0, 0)):
+def render(mesh, texture, view="three-quarter", scale=4, shade=None, frame=None, margin=2, background=(0, 0, 0, 0), ids=None):
     """The model from a view, `scale` pixels a pixel of the model. `texture`: the sprite's
-    rgba array. `frame`: (u0, v0, u1, v1) of the model's pixels to draw (the sprite's own
+    rgba array. `ids`: an int array the picture's size, given, is filled with the index of
+    the triangle that drew each pixel (-1 none). `frame`: (u0, v0, u1, v1) of the model's pixels to draw (the sprite's own
     frame for the GBA view); else the model's extent plus a margin. `shade`: faces lit a
     little by their slant (on for every view but the GBA's)."""
     tex = np.asarray(texture)
-    if getattr(mesh, "palette", None):
-        strip = np.zeros((1, tex.shape[1], 4), dtype=np.uint8)
-        for i, c in enumerate(mesh.palette[:tex.shape[1]]):
-            strip[0, i] = (*c, 255)
+    painted = strip_pixels(mesh, tex.shape[1])
+    if painted:
+        rows = max(y for _, y in painted) + 1
+        strip = np.zeros((rows, tex.shape[1], 4), dtype=np.uint8)
+        for (x, y), c in painted.items():
+            if x < tex.shape[1]:
+                strip[y, x] = (*c, 255)
         tex = np.concatenate([tex, strip], axis=0)
     th, tw = tex.shape[:2]
     cam = _camera(view)
@@ -110,6 +114,8 @@ def render(mesh, texture, view="three-quarter", scale=4, shade=None, frame=None,
             f = 0.72 + 0.28 * max(0.0, float(n @ light)) + 0.08 * max(0.0, float(-(n @ light)))
             rgb = np.clip(rgb * f, 0, 255)
         sub[win] = d[win]
+        if ids is not None:
+            ids[y_min:y_max + 1, x_min:x_max + 1][win] = k
         block = out[y_min:y_max + 1, x_min:x_max + 1]
         block[win, :3] = rgb[win].astype(np.uint8)
         block[win, 3] = 255

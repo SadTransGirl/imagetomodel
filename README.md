@@ -83,8 +83,26 @@ cuts on the diagonal; and each thing read column by column:
   **cutout**, the GBA's picture standing with the background cut away (a plant, a flower
   or a sign on a counter's top), and what's behind it wears a plain tile instead.
 
-A box's sides and back are its own colour (its front's, outlines aside), a little darker;
-every other face the GBA never drew wears a plain colour painted in the canvas's strip.
+Every thing is cut from its background (the floor's shades, the wall's colours, a
+counter's colour under what stands on it) and its box is the size of its own pixels, so
+the floor shows round a cushion and a table is as big as it is drawn. The faces the GBA
+never drew are **painted from the thing's own art**, as a pixel artist extrudes a sprite,
+into the canvas's strip:
+
+- its **sides**: the front's edge profile (each row's body colour inside its outline)
+  across the depth, the outline continuing along the back edge, so a counter's end keeps
+  its red top band, its dark front and its grey foot;
+- its **back**: a panel in the front's row colours, outlined at both ends;
+- its **top**, standing against the wall: its top row's colours back over it, outlined
+  (`--tops painted`; from the GBA's angle such a top covers the wall's band above it, as
+  the port's own tops do; `--tops picture` wears the band there instead, exact from that
+  angle). A free-standing thing's top is the art itself.
+
+Each thing is also a model of its own, in `NAME-things/thing-N/`: `thing-N.lgfr.json` (as
+the port keeps one, standing for its tiles), `thing-N.glb`, `thing-N.obj` with its `.png`
+(its tiles' picture, cut from the background, with its painted faces in the strip), and
+renders from three-quarter and from behind, to look at in Blender or Blockbench and to
+bring back with the kit.
 
 The GBA's picture can't tell a tall front from a deep top, so a reading is a guess, and
 `NAME-labels.png` shows it: each tile's label (W wall, S side wall, T thing) and each
@@ -95,10 +113,10 @@ may be `void`, `floor`, `wall`, `wall_side`, `thing`, or `box` (a thing standing
 `counter` (a thing standing free, low) to force its kind.
 
 What's written is as for a building, and besides: `NAME-labels.json` (the grid, the wall's
-rows, the labels, the things), `NAME-things/NAME-thing-N.lgfr.json` (each thing as a model
-of its own tiles, as the port keeps one), and the `.glb`/`.obj` with an object per thing
-(and `floor`, `wall`, `side-left`, `side-right`), so that `tools/kit.py import` makes a
-model of each thing, standing wherever its pictures are, in every room with it.
+rows, the labels, the things and the objects they make with their boxes), the per-thing
+folders above, and the room's `.glb`/`.obj` with an object per thing (and `floor`, `wall`,
+`side-left`, `side-right`), so that `tools/kit.py import` makes a model of each thing,
+standing wherever its pictures are, in every room with it.
 
 A thing seen from the GBA is used twice when another stands on it (a machine on a counter):
 its tile is the counter's top and the machine's foot, both faithful; from other angles

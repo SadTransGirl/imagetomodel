@@ -40,8 +40,8 @@ def test_tiles_are_told_from_their_pictures():
     s, g, info = _labelled()
     L = info["labels"]
     assert info["wall_rows"] == 2 and info["wall_first"] == 0
-    assert all(L[0][tx] == "wall" for tx in range(12) if tx not in (5, 6))   # (the poster)
-    assert L[0][5] == "thing" and L[1][4] == "thing" and L[1][1] == "thing" and L[1][8] == "wall"
+    assert all(L[0][tx] == "wall" for tx in range(12) if tx not in (5, 6))   # (the poster's top may count as wall)
+    assert L[1][5] == "thing" and L[1][4] == "thing" and L[1][1] == "thing" and L[1][8] == "wall"
     assert L[2][0] == "wall_side" and L[2][11] == "wall_side"
     assert L[2][1] == "thing"                        # (the pot)
     assert all(L[3][tx] == "thing" for tx in range(2, 9)) and all(L[4][tx] == "thing" for tx in range(2, 9))
@@ -54,7 +54,7 @@ def test_things_stand_as_the_port_builds_them():
     s, g, info = _labelled()
     things = {(t["x"], tuple(t["rows"])): t["kind"] for t in room.runs(info, g)}
     assert things[(1, (1, 2))] == "against-wall"     # (the plant and its pot)
-    assert things[(5, (0, 1))] == "on-wall"           # (the poster)
+    assert things.get((5, (0, 1)), things.get((5, (1, 1)))) == "on-wall"   # (the poster)
     assert things[(4, (1, 3))] == "against-wall"     # (the machine, its foot on the counter's back edge)
     assert things[(4, (3, 4))] == "free"              # (the counter under it, its own run)
     assert things[(2, (3, 4))] == "free"
@@ -73,8 +73,11 @@ def test_room_is_faithful_from_the_gba_angle():
     things = room.runs(info, g)
     mesh = room.build(s, g, info, things)
     score, _ = faithful(mesh, s)
-    assert score["exact"] >= 0.985, score
+    # (the machine's painted top covers the wall's band above it from the GBA's angle)
+    assert score["exact"] >= 0.975, score
     assert score["covered"] >= 0.995, score
+    exact = faithful(room.build(s, g, info, things, tops="picture"), s)[0]["exact"]
+    assert exact >= 0.985, exact
     tq = np.array(render(mesh, s.rgba, "three-quarter", scale=1))
     assert (tq[:, :, 3] > 0).sum() > 100 * 80
 
@@ -85,7 +88,11 @@ def test_objects_are_split_for_the_kit():
     mesh = room.build(s, g, info, things)
     names = {n.split(":")[0] for n, _, _ in mesh.polys}
     assert "floor" in names and "wall" in names and "side-left" in names and "side-right" in names
-    assert sum(1 for n in names if n.startswith("thing-")) == sum(1 for t in things if t["kind"] != "on-wall")
+    objs = room.objects(info, g, things)
+    assert sum(1 for n in names if n.startswith("thing-")) == sum(1 for o in objs if o["kind"] not in ("on-wall", "flat"))
+    # (the counter's seven columns are one object, the mat on the void's edge lies flat)
+    assert any(o["columns"] == [2, 8] and o["rows"] == [3, 4] for o in objs)
+    assert any(o["kind"] == "flat" for o in objs)
     with tempfile.TemporaryDirectory() as d:
         gltf.write_glb(os.path.join(d, "r.glb"), mesh, s, split=True)
         raw = open(os.path.join(d, "r.glb"), "rb").read()
@@ -101,9 +108,20 @@ def test_room_cli_writes_everything():
         assert main(["room", os.path.join(d, "r.png"), "-o", os.path.join(d, "out"), "--views", "three-quarter"]) == 0
         for f in ("r.lgfr.json", "r.glb", "r.obj", "r.png", "r-labels.json", "r-labels.png", "r-faithful.png", "r-three-quarter.png"):
             assert os.path.exists(os.path.join(d, "out", f)), f
-        things = os.listdir(os.path.join(d, "out", "r-things"))
-        assert len(things) >= 5
-        one = json.load(open(os.path.join(d, "out", "r-things", sorted(things)[0])))
-        assert one["size"][0] == 1 and one["pieces"][0]["kind"] == "mesh"
+        things = sorted(os.listdir(os.path.join(d, "out", "r-things")))
+        assert len(things) >= 3
+        painted = 0
+        for name in things:
+            folder = os.path.join(d, "out", "r-things", name)
+            files = os.listdir(folder)
+            assert any(f.endswith(".lgfr.json") for f in files) and any(f.endswith(".glb") for f in files) and any(f.endswith(".obj") for f in files)
+            one = json.load(open(os.path.join(folder, [f for f in files if f.endswith(".lgfr.json")][0])))
+            assert one["pieces"][0]["kind"] == "mesh" and one["size"][0] >= 1
+            # (a box's sides are painted in the canvas's strip: pixels past the picture)
+            strip = one["pieces"][0]["canvas"][1] - one["size"][1] * 16
+            assert strip >= 32
+            if any(y >= one["size"][1] * 16 + 1 for xy in one["pieces"][0]["paint"].values() for y in xy[1::2]):
+                painted += 1
+        assert painted >= 2
         lab = json.load(open(os.path.join(d, "out", "r-labels.json")))
         assert lab["wall_rows"] == 2

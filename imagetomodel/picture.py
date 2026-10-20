@@ -127,6 +127,16 @@ class Sprite:
     def image(self):
         return Image.fromarray(self.rgba, "RGBA")
 
+    def crop(self, x0, y0, w, h):
+        """A sprite of a part of this one (pixels), at its native size."""
+        out = Sprite.__new__(Sprite)
+        out.scale = self.scale
+        out.rgba = np.ascontiguousarray(self.rgba[y0:y0 + h, x0:x0 + w])
+        out.H, out.W = out.rgba.shape[:2]
+        out.drawn = self.drawn[y0:y0 + h, x0:x0 + w].copy()
+        out.palette = Counter(map(tuple, out.rgba[out.drawn][:, :3].tolist()))
+        return out
+
     @property
     def cols(self):
         return math.ceil(self.W / PX)

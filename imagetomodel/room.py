@@ -13,7 +13,7 @@ from collections import Counter
 import numpy as np
 
 from .geometry import Mesh
-from .picture import PX, hsv
+from .picture import PX, hsv, luma
 
 LABELS = ("void", "floor", "wall", "wall_side", "thing", "box", "counter")   # (box, counter: a thing, its kind forced)
 
@@ -87,6 +87,8 @@ def _alike(c, colours):
         if s < 0.08 and v > 0.95 and lighter:
             return True
         fh, fs, _ = hsv(f)
+        if (s < 0.1) != (fs < 0.1):
+            continue                                  # (a grey is no shade of a coloured floor)
         dh = abs(h - fh)
         if min(dh, 360 - dh) <= 20 and abs(s - fs) <= 0.15:
             return True
@@ -141,20 +143,46 @@ def label(sprite, g, spec=None):
         plain, repeats = row_hashes.most_common(1)[0]
         if plain == modal or repeats < 2:
             break                                     # (the row's plain tile is the floor's, or it has none)
-        plain_colours = set(next(counts[k] for k, h in hashes.items() if h == plain))
+        # (the row's own colours: in most of its tiles, the floor's shades aside)
+        present = Counter()
+        drawn_tiles = 0
+        for tx in range(cols):
+            if drawn_share[(tx, ty)] < 0.1:
+                continue
+            drawn_tiles += 1
+            for col in counts[(tx, ty)]:
+                present[col] += 1
+        row_colours = {col for col, n in present.items() if n * 10 >= drawn_tiles * 6}
+        if not row_colours:
+            break
         wally = 0
         for tx in range(cols):
             c = counts[(tx, ty)]
             n = sum(c.values())
             if n == 0:
                 continue
-            share = sum(m for col, m in c.items() if col in plain_colours) / n
+            share = sum(m for col, m in c.items() if col in row_colours) / n
             if share >= 0.4:
                 wally += 1
         if wally * 2 < sum(1 for tx in range(cols) if drawn_share[(tx, ty)] >= 0.1):
             break
-        wall_colours |= plain_colours
+        wall_colours |= row_colours
         wall_rows = ty + 1 - first
+    # (a plain tile a wall row, made up: each pixel row's commonest colour across the
+    # row's tiles, the wall's bands running across; the wall's colours are its)
+    made_up = {}
+    for ty in range(first, first + wall_rows):
+        pixels = []
+        for j in range(PX):
+            c = Counter()
+            for tx in range(cols):
+                t, d = tiles[(tx, ty)]
+                for i in range(PX):
+                    if d[j, i]:
+                        c[tuple(int(v) for v in t[j, i, :3])] += 1
+            pixels.append(c.most_common(1)[0][0] if c else None)
+        made_up[ty] = pixels
+        wall_colours |= {p for p in pixels if p is not None}
     wall_rows = int(spec.get("wall_rows", wall_rows))
     wall_last = first + wall_rows - 1
     # the walls down the sides: in the outermost drawn columns, the tiles like the column's
@@ -185,13 +213,24 @@ def label(sprite, g, spec=None):
             k = (tx, ty)
             c = counts[k]
             n = sum(c.values())
-            if drawn_share[k] < 0.1:
+            if drawn_share[k] < 0.05:
                 lab = "void"
             elif k in side:
                 lab = "wall_side"
             elif first <= ty <= wall_last:
-                share = sum(m for col, m in c.items() if col in wall_colours) / n
-                lab = "wall" if share >= 0.85 or drawn_share[k] < 0.75 or tx in (0, cols - 1) else "thing"
+                # (the wall where its upper half is the wall's colours: its lower half may be
+                # the back of something standing before it)
+                t, d = tiles[k]
+                plain = made_up.get(ty, [])
+                same = total_ = 0
+                for j in range(PX // 2):
+                    for i in range(PX):
+                        if d[j, i]:
+                            total_ += 1
+                            if j < len(plain) and plain[j] is not None and tuple(int(v) for v in t[j, i, :3]) == plain[j]:
+                                same += 1
+                share = same / total_ if total_ else 0.0
+                lab = "wall" if share >= 0.7 or drawn_share[k] < 0.75 or tx in (0, cols - 1) else "thing"
             elif floor_share[k] >= 0.8 or drawn_share[k] < 0.75:
                 lab = "floor"                         # (a door mat on the void's edge, a corner cut: flat)
             else:
@@ -205,20 +244,35 @@ def label(sprite, g, spec=None):
                 forced[(x, y)] = lab
                 lab = "thing"
             labels[y][x] = lab
-    # a plain wall tile's column, for the sides of walls and boxes to wear
+    # a plain wall tile a row (the row's most repeated), for the walls' other faces and
+    # the wall behind a thing; the floor's tiles (the repeated tiles that are floor), for
+    # the floor under a thing
     plain_wall = None
+    plain_wall_rows = {}
     for ty in range(first, wall_last + 1):
+        best, best_share = None, -1.0
         for tx in range(cols):
-            if labels[ty][tx] == "wall" and hashes[(tx, ty)]:
-                plain_wall = (tx, ty)
-                break
-        if plain_wall:
-            break
+            c = counts[(tx, ty)]
+            n = sum(c.values())
+            if n < PX * PX or labels[ty][tx] != "wall":
+                continue
+            share = sum(m for col, m in c.items() if col in wall_colours) / n
+            if share > best_share:
+                best, best_share = (tx, ty), share
+        if best:
+            plain_wall_rows[ty] = best
+            if plain_wall is None:
+                plain_wall = best
+    floor_tiles = {}
+    for k, h in hashes.items():
+        if h and whole[h] >= 2 and floor_share[k] >= 0.95 and h not in floor_tiles:
+            floor_tiles[h] = k
     return {"labels": labels, "wall_first": first, "wall_rows": wall_rows,
             "floor_colours": ["%02x%02x%02x" % c for c in sorted(floor_colours)],
             "wall_colours": ["%02x%02x%02x" % c for c in sorted(wall_colours)],
             "plain_wall": list(plain_wall) if plain_wall else None, "counts": counts, "forced": forced,
-            "sprite": spr, "floor_share": floor_share, "plain_floor": next((list(k) for k, h in hashes.items() if h == modal), None)}
+            "sprite": spr, "floor_share": floor_share, "plain_wall_rows": plain_wall_rows, "made_up_wall": made_up,
+            "floor_tiles": list(floor_tiles.values()), "plain_floor": next((list(k) for k, h in hashes.items() if h == modal), None)}
 
 
 def _same_hue(a, b):
@@ -233,10 +287,19 @@ def _same_hue(a, b):
 def _family(a, b):
     """Whether two tiles, one over the other, look like one thing: one of the two commonest
     colours of each (outlines aside) of the same hue (a counter's top and its darker front;
-    not a yellow cushion over a blue one, though both have a grey foot)."""
+    not a yellow cushion over a blue one, though both have a grey foot: a grey counts only
+    as a tile's main colour)."""
     def top(c):
         return [col for col, _ in c.most_common() if not _dark(col)][:2]
-    return any(_same_hue(x, y) for x in top(a) for y in top(b))
+    ta, tb = top(a), top(b)
+    for i, x in enumerate(ta):
+        for j, y in enumerate(tb):
+            if hsv(x)[1] < 0.12 or hsv(y)[1] < 0.12:
+                if i == 0 and j == 0 and _same_hue(x, y):
+                    return True
+            elif _same_hue(x, y):
+                return True
+    return False
 
 
 def _main_colour(c):
@@ -277,7 +340,7 @@ def _outline_pixels(sprite, g, tx, ty):
     return out
 
 
-def _background(info, tx, ty, bands=None):
+def _background(info, tx, ty, bands=None, on_band=False):
     """The colours round a thing in its tile that aren't it: the floor's shades, the
     wall's colours on the wall's rows, and the band's colour where it stands on a counter."""
     floor_colours = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in info["floor_colours"]}
@@ -287,7 +350,7 @@ def _background(info, tx, ty, bands=None):
     for c in info["counts"][(tx, ty)]:
         if _alike(c, floor_colours) or (ty <= wall_last and c in wall_colours):
             back.add(c)
-    if bands and (tx, ty) in bands:
+    if on_band and bands and (tx, ty) in bands:
         back.add(bands[(tx, ty)])
     return back
 
@@ -300,7 +363,7 @@ def _is_cutout(info, g, tx, a, b, bands, outlines=False):
     sprite = info["sprite"]
     xs, ys, own, total, saturated = [], [], 0, 0, 0
     for ty in range(a, b + 1):
-        back = _background(info, tx, ty, bands)
+        back = _background(info, tx, ty, bands, on_band=outlines)
         edges = _outline_pixels(sprite, g, tx, ty) if outlines else set()
         for y in range(oy + ty * PX, oy + ty * PX + PX):
             for x in range(ox + tx * PX, ox + tx * PX + PX):
@@ -324,6 +387,14 @@ def _is_cutout(info, g, tx, a, b, bands, outlines=False):
         # (on a counter: a flower, a sign stand; a sheet of paper lies: pale)
         return height >= 0.6 * width and saturated * 5 >= own * 2
     return height >= width
+
+
+def _reaches(info, g, tx, ty, bands, edge):
+    """Whether a tile's own pixels (not its background) reach its top or bottom two rows."""
+    own = _own_pixels(info, g, tx, ty, bands, "thing")
+    y0 = g["oy"] + ty * PX
+    rows_ = (y0, y0 + 1) if edge == "top" else (y0 + PX - 2, y0 + PX - 1)
+    return any(y in rows_ for _, y in own)
 
 
 def runs(info, g):
@@ -370,7 +441,7 @@ def runs(info, g):
     def joined(tx, a, b):
         # (whether the tile b, under a, is part of the same thing)
         if a <= wall_last < b:
-            return True
+            return _reaches(info, g, tx, b, bands, "top")
         return _family(counts[(tx, a)], counts[(tx, b)])
     floor_share = info["floor_share"]
     found = []
@@ -384,15 +455,19 @@ def runs(info, g):
             b = ty
             shared = False
             # (a floor tile with something drawn on it, right under a thing on the wall's
-            # rows: the thing's foot, a plant's pot)
-            if b == wall_last and b + 1 < rows and labels[b + 1][tx] == "floor" and floor_share[(tx, b + 1)] < 0.95:
+            # rows, the two touching: the thing's foot, a plant's pot)
+            if b == wall_last and b + 1 < rows and labels[b + 1][tx] == "floor" and floor_share[(tx, b + 1)] < 0.95 \
+                    and _reaches(info, g, tx, b, bands, "bottom") and _reaches(info, g, tx, b + 1, bands, "top"):
                 labels[b + 1][tx] = "thing"
-            while b + 1 < rows and labels[b + 1][tx] == "thing" and joined(tx, b, b + 1) \
-                    and forced.get((tx, b)) == forced.get((tx, b + 1)):
+            while b + 1 < rows and labels[b + 1][tx] == "thing" and forced.get((tx, b)) == forced.get((tx, b + 1)):
+                if b == wall_last and not _reaches(info, g, tx, b, bands, "bottom"):
+                    break                             # (hanging on the wall, clear of what's under it)
                 if a <= wall_last and b + 1 > wall_last and band_colour(tx, b + 1) is not None \
                         and band_colour(tx, b + 1) not in top3(tx, b):
                     b += 1                            # (its foot on the counter's back edge)
                     shared = True
+                    break
+                if not joined(tx, b, b + 1):
                     break
                 b += 1
             if b <= wall_last:
@@ -437,7 +512,300 @@ def _shade(c, f):
     return tuple(max(0, min(255, int(round(v * f)))) for v in c)
 
 
-def build(sprite, g, info, things, front_height=16.0, low_height=8.0, wall_thick=4.0, spec=None):
+def _own_pixels(info, g, tx, ty, bands, kind):
+    """A thing's own pixels in a tile: all but the background's (the floor's shades, the
+    wall's colours on the wall's rows, a counter's colour and edges under what stands on it)."""
+    sprite = info["sprite"]
+    ox, oy = g["ox"], g["oy"]
+    back = _background(info, tx, ty, bands, on_band=(kind == "on-band"))
+    edges = _outline_pixels(sprite, g, tx, ty) if kind == "on-band" else set()
+    own = set()
+    for y in range(oy + ty * PX, oy + ty * PX + PX):
+        for x in range(ox + tx * PX, ox + tx * PX + PX):
+            c = sprite.colour(x, y)
+            if c is not None and c not in back and (x, y) not in edges:
+                own.add((x, y))
+    return own
+
+
+def objects(info, g, things):
+    """The things as objects: runs side by side with the same rows and kind are one (a
+    counter, a table); each with its tiles, its own pixels, and the box round them
+    ("bbox": [x0, y0, x1, y1] in the picture's pixels, y1 and x1 past the last)."""
+    bands = info.get("bands", {})
+    by_run = {}
+    for k, t in enumerate(things):
+        by_run[k] = {"kind": t["kind"], "rows": tuple(t["rows"]), "x": t["x"], "runs": [k], "cutout": t.get("cutout", False),
+                     "under": t.get("under")}
+    groups = []
+    taken = set()
+    for k in sorted(by_run, key=lambda k: (by_run[k]["rows"], by_run[k]["x"])):
+        if k in taken:
+            continue
+        o = by_run[k]
+        group = [k]
+        taken.add(k)
+        x = o["x"]
+        while True:
+            nxt = next((j for j in by_run if j not in taken and by_run[j]["x"] == x + 1 and by_run[j]["rows"] == o["rows"]
+                        and by_run[j]["kind"] == o["kind"] and by_run[j]["cutout"] == o["cutout"] and not o["cutout"]
+                        and _family(info["counts"][(x, o["rows"][1])], info["counts"][(x + 1, o["rows"][1])])), None)
+            if nxt is None:
+                break
+            group.append(nxt)
+            taken.add(nxt)
+            x += 1
+        groups.append(group)
+    out = []
+    for group in groups:
+        first = by_run[group[0]]
+        a, b = first["rows"]
+        tiles = [(by_run[k]["x"], ty) for k in group for ty in range(a, b + 1)]
+        own = set()
+        for tx, ty in tiles:
+            own |= _own_pixels(info, g, tx, ty, bands, first["kind"])
+        if not own:
+            continue
+        xs = [p[0] for p in own]
+        ys = [p[1] for p in own]
+        labels = info["labels"]
+        rows_n = len(labels)
+        # (on the void's edge, its pixels running off the floor into it: a door's mat, flat)
+        def void_below(tx, ty):
+            if ty + 1 >= rows_n or labels[ty + 1][tx] == "void":
+                return True
+            d = info["sprite"].drawn[g["oy"] + (ty + 1) * PX:g["oy"] + (ty + 2) * PX, g["ox"] + tx * PX:g["ox"] + (tx + 1) * PX]
+            return float(d.mean()) < 0.75                 # (half on the void)
+        def runs_off(tx, ty):
+            # (its pixels going on into the tile below, half on the void: a mat into the exit)
+            return ty + 1 < rows_n and labels[ty + 1][tx] != "void" and _reaches(info, g, tx, ty + 1, bands, "top")
+        at_edge = any(void_below(tx, ty) and _reaches(info, g, tx, ty, bands, "bottom") and runs_off(tx, ty) for tx, ty in tiles) \
+            or any(info["floor_share"][(tx, ty)] < 0.99 and float(info["sprite"].drawn[g["oy"] + ty * PX:g["oy"] + ty * PX + PX, g["ox"] + tx * PX:g["ox"] + tx * PX + PX].mean()) < 0.9 for tx, ty in tiles)
+        kind = "flat" if at_edge and first["kind"] == "free" else first["kind"]
+        out.append({"kind": kind, "rows": [a, b], "columns": [by_run[group[0]]["x"], by_run[group[-1]]["x"]],
+                    "tiles": tiles, "own": own, "bbox": [min(xs), min(ys), max(xs) + 1, max(ys) + 1],
+                    "cutout": first["cutout"], "under": first["under"], "runs": group})
+    return out
+
+
+def _front_rows(info, obj):
+    """How many of a thing's own rows are its front, as the GBA shades it: the darker band
+    along its bottom (its outline and the rows under its lighter top)."""
+    sprite = info["sprite"]
+    x0, y0, x1, y1 = obj["bbox"]
+    rows = []
+    for y in range(y0, y1):
+        vals = [luma(sprite.colour(x, y)) for x in range(x0, x1) if (x, y) in obj["own"]]
+        rows.append(sum(vals) / len(vals) if vals else None)
+    light = sorted(v for v in rows if v is not None)
+    if not light:
+        return 0
+    median = light[len(light) // 2]
+    n = 0
+    for v in reversed(rows):
+        if v is not None and v < median - 0.06:
+            n += 1
+        elif n > 0:
+            break
+        else:
+            n += 1 if v is None else 0
+            if v is not None:
+                break
+    return n
+
+
+def _profile(sprite, o, rows, side):
+    """A thing's edge down its front rows, as a pixel artist extrudes it: for each row, its
+    outermost own pixel's colour (its outline) and the one inside it (its body), from the
+    left or the right; None for a row with nothing."""
+    x0, _, x1, _ = o["bbox"]
+    out = []
+    for y in rows:
+        xs = sorted(x for (x, yy) in o["own"] if yy == y)
+        if not xs:
+            out.append((None, None))
+            continue
+        if side == "right":
+            xs = xs[::-1]
+        edge = sprite.colour(xs[0], y)
+        body = sprite.colour(xs[1], y) if len(xs) > 1 else edge
+        if body is not None and _dark(body) and len(xs) > 2 and not _dark(sprite.colour(xs[2], y) or (0, 0, 0)):
+            body = sprite.colour(xs[2], y)
+        out.append((edge, body))
+    return out
+
+
+def _darkest(sprite, o):
+    best = None
+    for (x, y) in o["own"]:
+        c = sprite.colour(x, y)
+        if c is not None and (best is None or luma(c) < luma(best)):
+            best = c
+    return best or (40, 40, 60)
+
+
+def painted_faces(sprite, o, front_rows, w, d, with_top):
+    """Textures for the faces the GBA never drew, painted from the thing's own art: its
+    sides (the front's edge profile across the depth, the outline along the back edge), its
+    back (a panel in the front's row colours, outlined), and, `with_top`, its top (its top
+    row's colours back over it, outlined). Rows of (r, g, b) or None."""
+    outline = _darkest(sprite, o)
+    d = max(1, int(round(d)))
+    w = max(1, int(round(w)))
+    faces = {}
+    for side in ("left", "right"):
+        rows = []
+        for edge, body in _profile(sprite, o, front_rows, side):
+            if edge is None:
+                rows.append([None] * d)
+                continue
+            line = edge if _dark(edge) else outline
+            fill = body if body is not None else edge
+            rows.append([fill] * max(0, d - 1) + [line] if d > 1 else [fill])
+        faces[side] = rows
+    rows = []
+    for y in front_rows:
+        own = [sprite.colour(x, y) for (x, yy) in o["own"] if yy == y]
+        own = [c for c in own if c is not None]
+        if not own:
+            rows.append([None] * w)
+            continue
+        body = Counter(c for c in own if not _dark(c)).most_common(1)
+        fill = body[0][0] if body else own[0]
+        line = outline if any(_dark(c) for c in own) else fill
+        rows.append([line] + [fill] * max(0, w - 2) + ([line] if w > 1 else []))
+    faces["back"] = rows
+    if with_top:
+        x0, y0, x1, y1 = o["bbox"]
+        tops = []
+        for x in range(x0, x0 + w):
+            ys = sorted(y for (xx, y) in o["own"] if xx == x)
+            if not ys:
+                tops.append((None, None))
+                continue
+            edge = sprite.colour(x, ys[0])
+            body = sprite.colour(x, ys[1]) if len(ys) > 1 else edge
+            tops.append((edge, body))
+        rows = []
+        for j in range(d):
+            row = []
+            for i, (edge, body) in enumerate(tops):
+                if edge is None:
+                    row.append(None)
+                elif j == 0 or i == 0 or i == w - 1:
+                    row.append(edge if _dark(edge) else outline)
+                else:
+                    row.append(body if body is not None else edge)
+            rows.append(row)
+        faces["top"] = rows
+    return faces
+
+
+def add_thing(mesh, sprite, o, objs, wall_z, front_height="auto", low_height=8.0, spec=None, info=None, name="thing", tops="painted"):
+    """One thing's faces added to a mesh: a cutout standing, or a box round its own pixels,
+    its front standing at its foot, its top lying back from its head (or painted, against
+    the wall), its sides and back painted from its art."""
+    spec = dict(spec or {})
+    kind = o["kind"]
+    x0, y0, x1, y1 = (float(v) for v in o["bbox"])
+    zb = y1
+    tall = y1 - y0
+
+    def front_height_of(obj):
+        n_rows = obj["rows"][1] - obj["rows"][0] + 1
+        bx0, by0, bx1, by1 = obj["bbox"]
+        if "front_height" in spec:
+            h = float(spec["front_height"])
+        elif front_height == "auto":
+            h = float(_front_rows(info, obj)) if info else float(PX)
+            if h <= 1:
+                h = float(low_height if n_rows == 1 else PX)
+        else:
+            h = float(front_height if n_rows > 1 else low_height)
+        return max(1.0, min(h, float(by1 - by0)))
+    if kind == "flat" or (kind == "on-wall" and not o["cutout"]):
+        return
+    if o["cutout"]:
+        d = 0.5
+        y_foot = -d
+        z_foot = zb + d
+        if kind == "on-wall":
+            z_foot = wall_z + d
+        if kind == "on-band":
+            under = next((u for u in objs if o["under"] in u["runs"]), None)
+            h_under = front_height_of(under) if under else float(low_height)
+            y_foot = h_under - d
+            z_foot = zb + h_under + d
+        mesh.face([(x0, y_foot, z_foot), (x1, y_foot, z_foot), (x1, y_foot + tall, z_foot), (x0, y_foot + tall, z_foot)], name=name + ":cutout")
+        return
+    if kind == "against-wall":
+        h = tall
+        z_front = zb
+        z_back = min(wall_z, zb - 1.0)
+    elif kind == "tall":
+        h = tall
+        z_front = zb
+        z_back = zb - PX
+    else:
+        h = front_height_of(o)
+        z_front = zb
+        z_back = y0 + h
+    depth = z_front - z_back
+    mesh.face([(x0, 0, z_front), (x1, 0, z_front), (x1, h, z_front), (x0, h, z_front)], name=name)
+    front_rows = range(int(round(y1 - h)), int(round(y1)))
+    faces = painted_faces(sprite, o, front_rows, x1 - x0, depth, with_top=(kind in ("against-wall", "tall")))
+    w = x1 - x0
+    if depth > 1e-6:
+        top = [(x0, h, z_back), (x0, h, z_front), (x1, h, z_front), (x1, h, z_back)]
+        if kind in ("against-wall", "tall") and tops == "painted":
+            # (painted from its art: from the GBA's angle it covers the wall's band above
+            # it, as the port's own tops do; "picture" wears the band there instead)
+            pu, pv = mesh.patch(faces["top"])
+            dp = len(faces["top"])
+            mesh.face(top, [(pu, pv), (pu, pv + dp), (pu + w, pv + dp), (pu + w, pv)], name=name)
+        else:
+            mesh.face(top, name=name)
+        dp = len(faces["left"][0]) if faces["left"] else 1
+        pu, pv = mesh.patch(faces["left"])
+        mesh.face([(x0, 0, z_back), (x0, 0, z_front), (x0, h, z_front), (x0, h, z_back)],
+                  [(pu + dp, pv + h), (pu, pv + h), (pu, pv), (pu + dp, pv)], name=name)
+        pu, pv = mesh.patch(faces["right"])
+        mesh.face([(x1, 0, z_front), (x1, 0, z_back), (x1, h, z_back), (x1, h, z_front)],
+                  [(pu, pv + h), (pu + dp, pv + h), (pu + dp, pv), (pu, pv)], name=name)
+    if kind in ("free", "tall") and depth > 1e-6:
+        pu, pv = mesh.patch(faces["back"])
+        mesh.face([(x1, 0, z_back), (x0, 0, z_back), (x0, h, z_back), (x1, h, z_back)],
+                  [(pu, pv + h), (pu + w, pv + h), (pu + w, pv), (pu, pv)], name=name)
+
+
+def build_object(sprite, g, info, things, k, front_height="auto", low_height=8.0, spec=None, tops="painted"):
+    """One thing as a model of its own: (the sprite cropped to its tiles, its mesh in that
+    sprite's pixels, the pixels to cut, its block (tx, ty, cols, rows)); None for a thing
+    that is only paint on the wall or the floor."""
+    from .geometry import rebased
+    objs = objects(info, g, things)
+    o = objs[k]
+    if o["kind"] == "flat" or (o["kind"] == "on-wall" and not o["cutout"]):
+        return None
+    (ta, tb), (ca, cb) = o["rows"], o["columns"]
+    bx, by = g["ox"] + ca * PX, g["oy"] + ta * PX
+    cols, rows = cb - ca + 1, tb - ta + 1
+    crop = sprite.crop(bx, by, cols * PX, rows * PX)
+    wall_z = g["oy"] + (info["wall_first"] + info["wall_rows"]) * PX
+    mesh = Mesh(strip_v=sprite.H, strip_w=crop.W)
+    add_thing(mesh, sprite, o, objs, wall_z, front_height, low_height, spec, info, name="thing-%d" % k, tops=tops)
+    moved = rebased(mesh, bx, by, sprite.H, crop.H, crop.W)
+    cut = []
+    for tx, ty in o["tiles"]:
+        x0, y0 = g["ox"] + tx * PX, g["oy"] + ty * PX
+        for y in range(y0, y0 + PX):
+            for x in range(x0, x0 + PX):
+                if sprite.colour(x, y) is not None and (x, y) not in o["own"]:
+                    cut.extend((x - bx, y - by))
+    return crop, moved, cut, (bx // PX, by // PX, cols, rows)
+
+
+def build(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4.0, spec=None, tops="painted"):
     """The room's mesh, in the picture's pixels (x across, y up, z down the picture); each
     polygon named for the object it belongs to ("floor", "wall", "side-left", "thing-3").
     The walls are thin, their top band plain; a thing is a box with its sides its own
@@ -453,25 +821,49 @@ def build(sprite, g, info, things, front_height=16.0, low_height=8.0, wall_thick
     wall_h = info["wall_rows"] * PX
     wall_z = oy + (wall_last + 1) * PX                 # (the back wall's face)
     thick = float(spec.get("wall_thick", wall_thick))
-    mesh = Mesh(strip_v=sprite.H)
+    mesh = Mesh(strip_v=sprite.H, strip_w=sprite.W)
 
     def px(tx, ty):
         return ox + tx * PX, oy + ty * PX
+
+    # (a plain tile a wall row, made up in label(): a patch in the strip, for the wall
+    # behind a thing and the walls' other faces)
+    wall_patches = {ty: mesh.patch([[c] * PX for c in rows_]) for ty, rows_ in info.get("made_up_wall", {}).items()}
 
     def tile_uv(at, tx, ty, x, z):
         """The picture of tile `at` where a point of tile (tx, ty) would be drawn."""
         ax, ay = px(*at)
         x0, z0 = px(tx, ty)
         return (ax + (x - x0), ay + (z - z0))
-    plain_wall = tuple(info["plain_wall"]) if info["plain_wall"] else None
     plain_floor = tuple(info["plain_floor"]) if info.get("plain_floor") else None
-    wall_colour = _mean_colour(counts[plain_wall]) if plain_wall else (200, 190, 170)
-    band_tile = (plain_wall[0], first) if plain_wall else None
-    band_colour = _mean_colour(counts[band_tile]) if band_tile else wall_colour
-    # what stands behind a cutout, to wear a plain tile instead of the thing's picture
-    cut_things = [t for t in things if t.get("cutout")]
-    behind = {(t["x"], ty) for t in cut_things for ty in range(t["rows"][0], t["rows"][1] + 1)}
-    on_band = {(t["x"], t["rows"][0]) for t in cut_things if t["kind"] == "on-band"}
+    made = info.get("made_up_wall", {})
+    wall_colour = _mean_colour(Counter(c for c in made.get(wall_last, []) if c)) if made.get(wall_last) else (200, 190, 170)
+    band_colour = _mean_colour(Counter(c for c in made.get(first, [])[:PX // 2] if c)) if made.get(first) else wall_colour
+    # what stands behind a thing (the floor, the wall, a counter's top) wears a plain
+    # tile instead of the thing's picture: the thing is cut from its background
+    objs = objects(info, g, things)
+    behind = {tile for o in objs if o["kind"] != "flat" and (o["kind"] != "on-wall" or o["cutout"]) for tile in o["tiles"]}
+    on_band = {tile for o in objs if o["kind"] == "on-band" for tile in o["tiles"]}
+    floor_colours = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in info["floor_colours"]}
+
+    def floor_like_tile(tx, ty):
+        """The floor tile most like the floor round a thing in its tile (its shade)."""
+        candidates = [tuple(t) for t in info.get("floor_tiles", [])] or ([plain_floor] if plain_floor else [])
+        if not candidates:
+            return None
+        x0, y0 = px(tx, ty)
+        best, best_score = candidates[0], -1
+        for cand in candidates:
+            cx, cy = px(*cand)
+            score = 0
+            for j in range(PX):
+                for i in range(PX):
+                    c = sprite.colour(x0 + i, y0 + j)
+                    if c is not None and _alike(c, floor_colours) and sprite.colour(cx + i, cy + j) == c:
+                        score += 1
+            if score > best_score:
+                best, best_score = cand, score
+        return best
 
     # the floor: flat, each tile its picture (a plain floor tile under a cutout)
     for ty in range(rows):
@@ -480,8 +872,9 @@ def build(sprite, g, info, things, front_height=16.0, low_height=8.0, wall_thick
             if lab in ("floor", "thing", "wall_side"):
                 x0, z0 = px(tx, ty)
                 pts = [(x0, 0, z0), (x0, 0, z0 + PX), (x0 + PX, 0, z0 + PX), (x0 + PX, 0, z0)]
-                if (tx, ty) in behind and (tx, ty) not in on_band and plain_floor:
-                    mesh.face(pts, [tile_uv(plain_floor, tx, ty, p[0], p[2]) for p in pts], name="floor")
+                under = floor_like_tile(tx, ty) if (tx, ty) in behind and (tx, ty) not in on_band else None
+                if under:
+                    mesh.face(pts, [tile_uv(under, tx, ty, p[0], p[2]) for p in pts], name="floor")
                 else:
                     mesh.face(pts, name="floor")
     # the back wall: a thin slab the wall's rows tall, its face the rows a pixel a pixel
@@ -493,29 +886,44 @@ def build(sprite, g, info, things, front_height=16.0, low_height=8.0, wall_thick
     diagonals = {}
     for tx in (wall_cols[:1] + wall_cols[-1:]) if wall_cols else []:
         x0, _ = px(tx, 0)
-        cut = any(0.05 < float(sprite.drawn[oy + ty * PX:oy + ty * PX + PX, x0:x0 + PX].mean()) < 0.95 for ty in range(first, wall_last + 1))
-        if cut and tx == wall_cols[0]:
-            diagonals[tx] = [(x0 + PX, wall_z), (x0, wall_z + PX)]
-        elif cut and tx == wall_cols[-1]:
-            diagonals[tx] = [(x0, wall_z), (x0 + PX, wall_z + PX)]
+        # (how far in the void cuts the corner: the cut runs where the void's pixels end,
+        # a line at 45 degrees c pixels from the outer corner of the wall's top tile)
+        y0 = oy + first * PX
+        void = ~sprite.drawn[y0:y0 + PX, x0:x0 + PX]
+        ys_, xs_ = np.nonzero(void)
+        if len(xs_) == 0 or len(xs_) == PX * PX:
+            continue
+        left = tx == wall_cols[0]
+        c = int((xs_ + ys_).max() + 1) if left else int(((PX - 1 - xs_) + ys_).max() + 1)
+        c = max(2, min(PX, c))
+        # (a hair past each end, so the pixels along its edge are drawn)
+        if left:
+            diagonals[tx] = [(x0 + c + 0.5, wall_z - 0.5), (x0 - 0.5, wall_z + c + 0.5), c]
+        else:
+            diagonals[tx] = [(x0 + PX - c - 0.5, wall_z - 0.5), (x0 + PX + 0.5, wall_z + c + 0.5), c]
     if wall_cols and info["wall_rows"] > 0:
         z_back = wall_z - thick
         for tx in wall_cols:
             x0, _ = px(tx, 0)
             if tx in diagonals:
-                (ax, az), (bx, bz) = diagonals[tx]
+                (ax, az), (bx, bz), c = diagonals[tx]
                 quad = [(ax, 0, az), (bx, 0, bz), (bx, wall_h, bz), (ax, wall_h, az)]
                 if tx != wall_cols[0]:
                     quad = quad[::-1]
-                mesh.face(quad, name="wall")          # (the picture where the GBA draws it)
-                mesh.face(quad[::-1], mesh.plain(_shade(wall_colour, 0.85)), name="wall")
+                mesh.face(quad, name="wall")          # (the picture where the GBA draws it; seen from both sides)
+                # (the straight wall on from the cut to the tile's end)
+                xs0, xs1 = (x0 + c, x0 + PX) if tx == wall_cols[0] else (x0, x0 + PX - c)
+                if xs1 - xs0 > 0.5:
+                    for ty in range(first, wall_last + 1):
+                        y0_ = (wall_last - ty) * PX
+                        mesh.face([(xs0, y0_, wall_z), (xs1, y0_, wall_z), (xs1, y0_ + PX, wall_z), (xs0, y0_ + PX, wall_z)], name="wall")
                 continue
             for ty in range(first, wall_last + 1):
                 y0 = (wall_last - ty) * PX
                 pts = [(x0, y0, wall_z), (x0 + PX, y0, wall_z), (x0 + PX, y0 + PX, wall_z), (x0, y0 + PX, wall_z)]
-                if (tx, ty) in behind and (tx, ty) not in on_band and plain_wall:
-                    at = (plain_wall[0], ty)
-                    mesh.face(pts, [tile_uv(at, tx, ty, p[0], p[2] - p[1]) for p in pts], name="wall")
+                if (tx, ty) in behind and (tx, ty) not in on_band and ty in wall_patches:
+                    pu, pv = wall_patches[ty]
+                    mesh.face(pts, [(pu + (p[0] - x0), pv + (p[2] - p[1] - oy - ty * PX)) for p in pts], name="wall")
                 else:
                     mesh.face(pts, name="wall")
             mesh.face([(x0, wall_h, z_back), (x0, wall_h, wall_z), (x0 + PX, wall_h, wall_z), (x0 + PX, wall_h, z_back)],
@@ -523,6 +931,10 @@ def build(sprite, g, info, things, front_height=16.0, low_height=8.0, wall_thick
         straight = [tx for tx in wall_cols if tx not in diagonals] or wall_cols
         xa, _ = px(min(straight), 0)
         xb, _ = px(max(straight) + 1, 0)
+        if wall_cols[0] in diagonals:
+            xa = px(wall_cols[0], 0)[0] + diagonals[wall_cols[0]][2]
+        if wall_cols[-1] in diagonals:
+            xb = px(wall_cols[-1], 0)[0] + PX - diagonals[wall_cols[-1]][2]
         end = mesh.plain(_shade(wall_colour, 0.85))
         mesh.face([(xa, 0, z_back), (xa, 0, wall_z), (xa, wall_h, wall_z), (xa, wall_h, z_back)], end, name="wall")
         mesh.face([(xb, 0, wall_z), (xb, 0, z_back), (xb, wall_h, z_back), (xb, wall_h, wall_z)], end, name="wall")
@@ -532,9 +944,10 @@ def build(sprite, g, info, things, front_height=16.0, low_height=8.0, wall_thick
     face_colour = mesh.plain(wall_colour)
     top_colour = mesh.plain(_shade(band_colour, 1.1))
     for side_name, tx in (("side-left", 0), ("side-right", cols - 1)):
-        tys = [ty for ty in range(rows) if labels[ty][tx] == "wall_side" and not (tx in diagonals and ty == wall_last + 1)]
+        tys = [ty for ty in range(rows) if labels[ty][tx] == "wall_side"]
         if not tys:
             continue
+        z_from = wall_z + diagonals[tx][2] if tx in diagonals else None
         inner = tx == 0
         x0, _ = px(tx, 0)
         xi = x0 + PX - thick if inner else x0
@@ -546,6 +959,8 @@ def build(sprite, g, info, things, front_height=16.0, low_height=8.0, wall_thick
                 ty1 += 1
             _, z0 = px(tx, ty0)
             _, z1 = px(tx, ty1 + 1)
+            if z_from is not None and z0 < z_from < z1:
+                z0 = z_from                           # (from the corner's cut on)
             if inner:
                 mesh.face([(xo, 0, z0), (xo, 0, z1), (xo, wall_h, z1), (xo, wall_h, z0)], face_colour, name=side_name)
             else:
@@ -554,86 +969,25 @@ def build(sprite, g, info, things, front_height=16.0, low_height=8.0, wall_thick
             mesh.face([(xo, 0, z0), (xi, 0, z0), (xi, wall_h, z0), (xo, wall_h, z0)], face_colour, name=side_name)
             mesh.face([(xi, wall_h, z0), (xi, wall_h, z1), (xo, wall_h, z1), (xo, wall_h, z0)], name=side_name)
             ty0 = ty1 + 1
-    # the things
-    for k, t in enumerate(things):
-        tx, (a, b) = t["x"], t["rows"]
-        kind = t["kind"]
-        name = "thing-%d" % k
-        x0, za = px(tx, a)
-        zb = oy + (b + 1) * PX                        # (its foot)
-        n = b - a + 1
-        if kind == "on-wall" and not t.get("cutout"):
-            continue                                   # (painted on the wall's face already)
-        if t.get("cutout"):
-            # standing at its foot, a hair forward along the GBA's line of sight, its
-            # background cut away in the canvas (what's behind it wears a plain tile)
-            d = 0.5
-            y_foot = -d
-            z_foot = zb + d
-            if kind == "on-wall":
-                z_foot = wall_z + d
-            if kind == "on-band":
-                # (on the counter's top, at its front edge: the top's height up, as far forward)
-                under = things[t["under"]]
-                ua, ub = under["rows"]
-                h_under = min(float(spec.get("front_height", front_height if ub - ua + 1 > 1 else low_height)), (ub - ua + 1) * PX)
-                y_foot = h_under - d
-                z_foot = zb + h_under + d
-            mesh.face([(x0, y_foot, z_foot), (x0 + PX, y_foot, z_foot), (x0 + PX, y_foot + n * PX, z_foot), (x0, y_foot + n * PX, z_foot)], name=name + ":cutout")
-            continue
-        if kind == "against-wall":
-            h = n * PX
-            z_front = zb
-            z_back = min(wall_z, zb - 1.0)
-        elif kind == "tall":
-            h = n * PX
-            z_front = zb
-            z_back = zb - PX
-        else:
-            h = float(spec.get("front_height", front_height if n > 1 else low_height))
-            h = min(h, n * PX)
-            z_front = zb
-            z_back = za + h
-        # the front, standing at its foot; the top lying back from its head; the sides and
-        # the back its own colour (the front's, outlines aside), a little darker
-        mesh.face([(x0, 0, z_front), (x0 + PX, 0, z_front), (x0 + PX, h, z_front), (x0, h, z_front)], name=name)
-        if z_front - z_back > 1e-6:
-            top = [(x0, h, z_back), (x0, h, z_front), (x0 + PX, h, z_front), (x0 + PX, h, z_back)]
-            if (tx, a) in on_band:
-                mesh.face(top, mesh.plain(info["bands"][(tx, a)]), name=name)
-            else:
-                mesh.face(top, name=name)
-        own = _mean_colour(counts[(tx, b)])
-        side = mesh.plain(_shade(own, 0.85))
-        back = mesh.plain(_shade(own, 0.75))
-        left_free = tx == 0 or not any(o["x"] == tx - 1 and o["rows"][1] == b and o["kind"] == kind for o in things)
-        right_free = tx == cols - 1 or not any(o["x"] == tx + 1 and o["rows"][1] == b and o["kind"] == kind for o in things)
-        if left_free:
-            mesh.face([(x0, 0, z_back), (x0, 0, z_front), (x0, h, z_front), (x0, h, z_back)], side, name=name)
-        if right_free:
-            mesh.face([(x0 + PX, 0, z_front), (x0 + PX, 0, z_back), (x0 + PX, h, z_back), (x0 + PX, h, z_front)], side, name=name)
-        if kind in ("free", "tall"):
-            mesh.face([(x0 + PX, 0, z_back), (x0, 0, z_back), (x0, h, z_back), (x0 + PX, h, z_back)], back, name=name)
+    # the things: each a cutout standing, or a box round its own pixels (the floor showing
+    # round it), its sides and back painted from its art
+    for k, o in enumerate(objs):
+        add_thing(mesh, sprite, o, objs, wall_z, front_height, low_height, spec, info, name="thing-%d" % k, tops=tops)
     return mesh
 
 
 def cutouts(sprite, g, info, things):
-    """The pixels to cut from the canvas for the things standing as cutouts: their tiles'
-    pixels of the background round them. (x, y) pairs, flat."""
-    bands = info.get("bands", {})
+    """The pixels to cut from the canvas: every thing's background in its tiles (the floor
+    round a cushion, the wall round a plant, the counter under a flower). (x, y) pairs."""
     cut = []
-    for t in things:
-        if not t.get("cutout"):
+    for o in objects(info, g, things):
+        if o["kind"] == "flat" or (o["kind"] == "on-wall" and not o["cutout"]):
             continue
-        tx, (a, b) = t["x"], t["rows"]
-        for ty in range(a, b + 1):
-            back = _background(info, tx, ty, bands)
-            edges = _outline_pixels(sprite, g, tx, ty) if t["kind"] == "on-band" else set()
+        for tx, ty in o["tiles"]:
             x0, y0 = g["ox"] + tx * PX, g["oy"] + ty * PX
             for y in range(y0, y0 + PX):
                 for x in range(x0, x0 + PX):
-                    c = sprite.colour(x, y)
-                    if c is not None and (c in back or (x, y) in edges):
+                    if sprite.colour(x, y) is not None and (x, y) not in o["own"]:
                         cut.extend((x, y))
     return cut
 

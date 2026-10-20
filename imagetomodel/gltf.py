@@ -10,6 +10,8 @@ import struct
 
 from PIL import Image
 
+from .geometry import strip_pixels
+
 PX = 16
 PAINT_MIN = 32               # (the kit's: the painting strip's least height)
 
@@ -19,7 +21,7 @@ def canvas_size(cols, rows):
     return 2 * w, h + max(h, PAINT_MIN)
 
 
-def kit_canvas(sprite, cut=None, palette=None):
+def kit_canvas(sprite, cut=None, painted=None):
     """The kit's texture: the sprite at the top left (the block's picture), again at the top
     right (the thing alone, with `cut` pixels (x, y pairs) cleared), the strip clear below."""
     cw, ch = canvas_size(sprite.cols, sprite.rows)
@@ -35,9 +37,9 @@ def kit_canvas(sprite, cut=None, palette=None):
                 px[x, y] = (0, 0, 0, 0)
     out.paste(alone, (sprite.cols * PX, 0))
     px = out.load()
-    for i, c in enumerate(palette or []):
-        if sprite.cols * PX + i < cw and sprite.H < ch:
-            px[sprite.cols * PX + i, sprite.H] = (*c, 255)
+    for (x, y), c in (painted or {}).items():
+        if sprite.cols * PX + x < cw and sprite.H + y < ch:
+            px[sprite.cols * PX + x, sprite.H + y] = (*c, 255)
     return out
 
 
@@ -112,7 +114,7 @@ def write_glb(path, mesh, sprite, name="building", note=None, split=False, cut=N
                                                           "indices": len(accessors) - 1, "material": 0}]})
         nodes.append({"name": obj_name, "mesh": len(meshes) - 1})
     buf = io.BytesIO()
-    kit_canvas(sprite, cut, getattr(mesh, "palette", None)).save(buf, "PNG")
+    kit_canvas(sprite, cut, strip_pixels(mesh, sprite.W)).save(buf, "PNG")
     img_view = add_view(buf.getvalue())
     while len(blob) % 4:
         blob.append(0)
@@ -144,7 +146,7 @@ def write_obj(path, mesh, sprite, name="building", note=None, split=False, cut=N
     folder = os.path.dirname(path) or "."
     tex_name = "lgfr-%s-%s" % (note["kind"], note["key"]) if note else name
     png = stem + ".png"
-    kit_canvas(sprite, cut, getattr(mesh, "palette", None)).save(os.path.join(folder, png))
+    kit_canvas(sprite, cut, strip_pixels(mesh, sprite.W)).save(os.path.join(folder, png))
     with open(os.path.join(folder, stem + ".mtl"), "w") as f:
         f.write("# imagetomodel\nnewmtl %s\nKa 1.0 1.0 1.0\nKd 1.0 1.0 1.0\nKs 0.0 0.0 0.0\n"
                 "d 1.0\nillum 1\nmap_Kd %s\nmap_d %s\n" % (tex_name, png, png))

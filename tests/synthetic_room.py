@@ -66,10 +66,10 @@ def room(cols=12, rows=8, scale=1):
     for y in range(6 * 16 + 4, 6 * 16 + 14):
         for x in range(9 * 16 + 3, 9 * 16 + 13):
             put(x, y, OUTLINE if y in (6 * 16 + 4, 6 * 16 + 13) or x in (9 * 16 + 3, 9 * 16 + 12) else STOOL)
-    # the mat on the void's edge: the last row, the middle column
-    for y in range((rows - 1) * 16, (rows - 1) * 16 + 8):
+    # the mat on the void's edge: from the last floor row on into the exit, the middle columns
+    for y in range((rows - 1) * 16 - 8, (rows - 1) * 16 + 8):
         for x in range(cols * 8 - 8, cols * 8 + 8):
-            put(x, y, OUTLINE if y == (rows - 1) * 16 or x in (cols * 8 - 8, cols * 8 + 7) else MAT)
+            put(x, y, OUTLINE if y in ((rows - 1) * 16 - 8, (rows - 1) * 16 + 7) or x in (cols * 8 - 8, cols * 8 + 7) else MAT)
     img = Image.fromarray(im, "RGBA")
     if scale > 1:
         img = img.resize((W * scale, H * scale), Image.NEAREST)

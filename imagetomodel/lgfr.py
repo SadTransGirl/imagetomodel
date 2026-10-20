@@ -12,6 +12,8 @@ nowhere until they're filled in (0 would stand everywhere)."""
 import json
 import os
 
+from .geometry import strip_pixels
+
 PX = 16
 UNPLACED = 1
 
@@ -36,8 +38,8 @@ def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_al
     bx, by, cols, rows = block
     W, H = cols * PX, rows * PX
     dx, dy = bx * PX, by * PX
-    strip = max(H, 32)                                # (the kit's painting strip under the picture)
-    palette = list(getattr(mesh, "palette", []) or [])
+    painted = strip_pixels(mesh, sprite.W)
+    strip = max(H, 32, (max(y for _, y in painted) + 1) if painted else 0)   # (the kit's painting strip under the picture)
     tris, uvs = [], []
     for nm, pts, tex in mesh.triangles():
         if only is not None and not only(nm):
@@ -45,8 +47,8 @@ def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_al
         for p in pts:
             tris.extend((round(p[0] - dx, 3), round(p[1], 3), round(p[2] - dy, 3)))
         for t in tex:
-            if palette and t[1] >= sprite.H:          # (a plain colour: in the strip)
-                uvs.extend((round(W + int(t[0]) + 0.5, 3), H + 0.5))
+            if painted and t[1] >= sprite.H:          # (in the strip: a plain colour, a patch: not moved with the block)
+                uvs.extend((round(W + t[0], 3), round(H + (t[1] - sprite.H), 3)))
             else:
                 uvs.extend((round(W + t[0] - dx, 3), round(t[1] - dy, 3)))
     cut = []
@@ -61,8 +63,9 @@ def model(mesh, sprite, name, measured=None, thing=None, thing_id=None, paint_al
                 cut.extend((W + x - dx, y - dy))
             elif paint_all:
                 paint.setdefault("%02x%02x%02x" % c, []).extend((W + x - dx, y - dy))
-    for i, c in enumerate(palette):
-        paint.setdefault("%02x%02x%02x" % tuple(c), []).extend((W + i, H))
+    for (x, y), c in painted.items():
+        if x < W:
+            paint.setdefault("%02x%02x%02x" % tuple(c), []).extend((W + x, H + y))
     if thing is not None:
         tiles = [[int(t) for t in r] for r in thing["tiles"]]
         prints = [[int(q) for q in r] for r in thing["prints"]]
