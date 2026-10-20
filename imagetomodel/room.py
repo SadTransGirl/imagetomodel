@@ -597,6 +597,20 @@ def _drop_shadow(sprite, own):
         past = [y for y in ys if darks and y > max(darks)]
         if past and all(shade(sprite.colour(x, y)) for y in past):
             out |= {(x, y) for y in past}
+    # (and the grey touching it with no outline to its right or below: the shadow's corner,
+    # where neither its row nor its column has an outline to be past)
+    grown = True
+    while grown:
+        grown = False
+        for (x, y) in own - out:
+            if not shade(sprite.colour(x, y)):
+                continue
+            if not any((x + dx, y + dy) in out for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+                continue
+            if any(_dark(sprite.colour(xx, y)) for xx in rows[y] if xx > x) or any(_dark(sprite.colour(x, yy)) for yy in cols[x] if yy > y):
+                continue
+            out.add((x, y))
+            grown = True
     return out
 
 
