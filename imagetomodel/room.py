@@ -1806,6 +1806,8 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
             build_escalator(part, sprite, o, fix, owner)
         elif shape == "plant":
             build_plant(part, sprite, o, own_set, fix, owner, recess=recess_of(o, fix), raised=raised_of(o, fix))
+            if u is not None:
+                under_cubes.setdefault(u, set()).update(own_set)
         elif shape in ("round", "slab"):
             foot = max(v for _, v in own_set)
             z_foot = foot + 1 + yb
