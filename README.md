@@ -140,11 +140,26 @@ own `building_fixes.json` does:
 - `keep`: the holes closed in it keep the picture's colours (a tab the counter's colour,
   which would otherwise be taken for the counter);
 - `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far
-  a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`;
+  a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`, `plant`;
   `round_depth`: how deep a round thing is, against its width; `back_to_wall`.
 
+A **plant** (a potted palm) is built in three parts, each where the GBA draws it: its pot
+by its `profile`, its `soil` (a colour over rows and columns) sunk by a `recess`; its
+`trunk` (the `cols` and `rows` it's drawn in, its `stripes` the rows whose colours repeat
+up it) a square column standing in the soil, outlined at its corners, up to its crown; and
+its `crown` (`rows`, with a `profile` and `profiles` up from its foot as a thing's): the
+rows that lie are fronds, every column moved along the line of sight till they're level
+over the trunk, the rows that stand leaves hanging from them or tips curling:
+
+```json
+"crown": {"rows": [0, 14], "profile": [["up", 6], ["back", "rest"]],
+          "profiles": [{"cols": [6, 9], "profile": [["up", 2], ["back", "rest"]]}]},
+"trunk": {"cols": [6, 9], "rows": [15, 20], "stripes": [16, 19]},
+"soil": {"colour": "ad9442", "rows": [17, 21], "cols": [6, 9]}
+```
+
 The library shipped with the tool (`imagetomodel/fixes/rooms.json`) has the Pokemon
-Center's shelf, PC, healing machine and nurse's PC; `--fixes FILE` adds more, and a spec's
+Center's shelf, PC, healing machine, nurse's PC and potted palm; `--fixes FILE` adds more, and a spec's
 `"objects"` may key a fix by the thing's first tile (`"5,1"`) for one room.
 
 `--style faces` builds the earlier way instead: boxes with their sides painted from the

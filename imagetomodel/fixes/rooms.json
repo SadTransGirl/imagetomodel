@@ -1,5 +1,5 @@
 {
-  "_comment": "Things set by hand, by fingerprint (its tiles' pictures as drawn) (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows, and cols) a cube proud, one or a list; keep: closed holes keep the picture's colours (a tab the counter's colour); outline: false for none; drop: pixels that aren't the thing's; shape: box, round, slab, escalator; front: its front's rows; back_to_wall.",
+  "_comment": "Things set by hand, by fingerprint (its tiles' pictures as drawn) (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows, and cols) a cube proud, one or a list; keep: closed holes keep the picture's colours (a tab the counter's colour); outline: false for none; drop: pixels that aren't the thing's; shape: box, round, slab, escalator, plant (a pot, a trunk and a crown: soil, trunk, crown; see room.build_plant); front: its front's rows; back_to_wall.",
   "8e1a09fc8710": {
     "name": "Pokemon Center shelf",
     "profile": [
@@ -213,5 +213,92 @@
         ]
       }
     ]
+  },
+  "4150f0aa319e": {
+    "name": "Potted palm",
+    "shape": "plant",
+    "crown": {
+      "rows": [
+        0,
+        14
+      ],
+      "profile": [
+        [
+          "up",
+          6
+        ],
+        [
+          "back",
+          "rest"
+        ]
+      ],
+      "profiles": [
+        {
+          "cols": [
+            6,
+            9
+          ],
+          "profile": [
+            [
+              "up",
+              2
+            ],
+            [
+              "back",
+              "rest"
+            ]
+          ]
+        }
+      ]
+    },
+    "trunk": {
+      "cols": [
+        6,
+        9
+      ],
+      "rows": [
+        15,
+        20
+      ],
+      "stripes": [
+        16,
+        19
+      ]
+    },
+    "profile": [
+      [
+        "up",
+        5
+      ],
+      [
+        "back",
+        "rest"
+      ]
+    ],
+    "soil": {
+      "colour": "ad9442",
+      "rows": [
+        17,
+        21
+      ],
+      "cols": [
+        6,
+        9
+      ]
+    },
+    "recess": [
+      {
+        "rows": [
+          17,
+          21
+        ],
+        "cols": [
+          6,
+          9
+        ],
+        "depth": 1
+      }
+    ],
+    "back_to_wall": false
   }
 }

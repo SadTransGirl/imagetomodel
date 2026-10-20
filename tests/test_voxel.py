@@ -341,3 +341,15 @@ def test_a_round_thing_is_outlined_only_where_its_picture_is():
     head = [c for (x, y, z), c in g.cubes.items() if y >= 6]
     pot = [c for (x, y, z), c in g.cubes.items() if 1 <= y <= 4]
     assert LINE not in head and LINE in pot
+
+
+def test_a_canopys_fronds_lie_level_each_pixel_where_its_drawn():
+    own = {(3, v) for v in range(0, 10)} | {(6, v) for v in range(2, 10)}
+    kinds = voxel.columns_kinds([{"cols": [3, 3], "profile": [["up", 2], ["back", "rest"]]}],
+                                voxel.segments_kinds([["up", 5], ["back", "rest"]], 10), 0, 10)
+    cells = voxel.canopy(own, kinds, 10)
+    for (x, v), (y, z) in cells.items():
+        assert z - y == v if kinds(x, v) == "up" else z - y - 1 == v      # (on its line of sight)
+    # (both columns' fronds at height 0, their leaves hanging under them)
+    assert {y for (x, v), (y, z) in cells.items() if kinds(x, v) == "back"} == {0}
+    assert min(y for y, _ in cells.values()) < 0

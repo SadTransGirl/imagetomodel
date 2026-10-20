@@ -8,6 +8,7 @@ row along each front's top edge (a cube has one colour; its top and front show t
 Coordinates are the room's pixels: x across (east), y up from the floor (the floor's cubes
 at y = -1), z down the picture (south, towards the camera). A cube (x, y, z) shows its front
 face on row z - y and its top face on row z - y - 1."""
+import math
 import struct
 from collections import Counter
 
@@ -527,6 +528,35 @@ def _outline_like(c):
     """A sprite's outline colour: dark, or a dark neutral grey."""
     h, s, val = hsv(c)
     return _dark(c) or (s < 0.12 and val < 0.6)
+
+
+def canopy(own, kind_of, bottom):
+    """A plant's crown: fronds lying level, leaves hanging from them. `kind_of(x, v)` says
+    of each row, up from `bottom` (the row under the crown), whether it stands ("up": a
+    leaf hanging, a tip curling) or lies ("back": a frond, reaching away). Each column is
+    then moved along the line of sight, its picture where the GBA draws it, till its fronds
+    lie level with the others'. Returns {(x, v): (y, z)}, before it's placed: the fronds at
+    height 0, to be moved along the line of sight as a whole (y + k, z + k)."""
+    cols = _columns(own)
+    out = {}
+    for x, vs in cols.items():
+        ups = 0
+        frond = None
+        cells = {}
+        for v in range(bottom - 1, vs[0] - 1, -1):
+            if kind_of(x, v) == "up":
+                cell = (ups, v + ups)
+                ups += 1
+            else:
+                cell = (ups - 1, v + ups)
+                if frond is None:
+                    frond = ups - 1
+            if (x, v) in own and cell not in cells.values():
+                cells[(x, v)] = cell
+        k = -(frond if frond is not None else ups - 1)
+        for p, (y, z) in cells.items():
+            out[p] = (y + k, z + k)
+    return out
 
 
 def lathe_outlined(sprite, own, y_base):

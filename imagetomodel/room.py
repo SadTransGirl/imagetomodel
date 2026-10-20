@@ -8,6 +8,7 @@ picture staying exactly where the GBA drew it, seen from the GBA's angle. Height
 they'd be unsquashed: the game squashes rooms as it builds them (Models.build does the
 same to a model), so a row of a picture here is 16 pixels standing."""
 import hashlib
+import math
 from collections import Counter
 
 import numpy as np
@@ -1795,6 +1796,8 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
         if shape == "escalator" or kind == "escalator":
             shape = "escalator"
             build_escalator(part, sprite, o, fix, owner)
+        elif shape == "plant":
+            build_plant(part, sprite, o, own_set, fix, owner, recess=recess_of(o, fix), raised=raised_of(o, fix))
         elif shape in ("round", "slab"):
             foot = max(v for _, v in own_set)
             z_foot = foot + 1 + yb
@@ -1931,6 +1934,71 @@ def escalators(info, g, objs):
                     "bbox": [min(xs), min(ys), max(xs) + 1, max(ys) + 1], "cutout": False, "under": None,
                     "runs": [r for k in part for r in objs[k]["runs"]]})
     return out
+
+
+def build_plant(grid, sprite, o, own, fix, owner, recess=None, raised=None):
+    """A potted plant (a palm), in three parts the fix names by rows and columns from the
+    thing's box's corner: its pot from the foot (the fix's "profile"; its "soil", a colour
+    over rows and columns, sunk by its "recess"), its trunk standing in the soil ("trunk":
+    its "cols" and "rows" as drawn, its "stripes" the rows its colours repeat up it), a
+    square column outlined at its corners, and its crown above ("crown": its "rows", its
+    "profile" and "profiles" as a thing's, up from its foot: fronds lying level, leaves
+    hanging; voxel.canopy) over the trunk. Each where the GBA draws it."""
+    from . import voxel
+    x0, y0 = o["bbox"][0], o["bbox"][1]
+    rel = lambda p, r, c: r[0] <= p[1] - y0 <= r[1] and c[0] <= p[0] - x0 <= c[1]
+    every = [-10 ** 6, 10 ** 6]
+    trunk = fix.get("trunk", {})
+    t_rows, t_cols = trunk.get("rows", every), trunk.get("cols", every)
+    crown = fix.get("crown", {})
+    if isinstance(crown, list):
+        crown = {"rows": crown}
+    crown_px = {p for p in own if rel(p, crown.get("rows", every), every)}
+    trunk_px = {p for p in own if rel(p, t_rows, t_cols)} - crown_px
+    soil = fix.get("soil")
+    soil_px = {p for p in own if soil and rel(p, soil["rows"], soil["cols"])} - crown_px
+    pot_px = (own - crown_px - trunk_px) | soil_px
+    colours = {}
+    if soil:
+        c = tuple(int(soil["colour"][i:i + 2], 16) for i in (0, 2, 4))
+        colours = {p: c for p in soil_px}
+    kinds = voxel.segments_kinds(fix.get("profile", [["up", "rest"]]), o["bbox"][3])
+    shown = voxel.unproject_profile(grid, sprite, pot_px, kinds, owner=owner, recess=recess,
+                                    raised=raised, colours=colours)
+    ground = [shown[p][0] + 1 for p in (soil_px or pot_px) if p in shown]
+    y_soil = max(ground) if ground else 0
+    if not trunk_px:
+        return
+    # (the trunk: its foot where the picture draws it, in the soil; a square column)
+    tx0, tx1 = min(x for x, _ in trunk_px), max(x for x, _ in trunk_px)
+    w = tx1 - tx0 + 1
+    z_front = max(v for _, v in trunk_px) + y_soil
+    stripes = trunk.get("stripes", t_rows)
+    mid = (tx0 + tx1) // 2
+    cycle = [sprite.colour(mid, y0 + r) for r in range(stripes[0], stripes[1] + 1)]
+    cycle = [c for c in cycle if c is not None] or [voxel._darkest(sprite, trunk_px)]
+    dark = voxel._darkest(sprite, trunk_px)
+    # (the crown: its fronds level, over the trunk's middle, where the picture puts them)
+    z_axis = z_front - (w - 1) / 2.0
+    bottom = max(v for _, v in crown_px) + 1 if crown_px else y0
+    kinds = voxel.segments_kinds(crown.get("profile", [["back", "rest"]]), bottom)
+    if "profiles" in crown:
+        kinds = voxel.columns_kinds(crown["profiles"], kinds, x0, bottom)
+    cells = voxel.canopy(crown_px, kinds, bottom)
+    over = [z for (x, _), (y, z) in cells.items() if tx0 <= x <= tx1 and y == 0] or [z for _, z in cells.values()]
+    lift = int(math.floor(z_axis - sum(over) / float(len(over)) + 0.5)) if over else 0
+    frond = lift
+    for (x, v), (y, z) in cells.items():
+        c = sprite.colour(x, v)
+        if c is not None:
+            grid.set(x, y + lift, z + lift, c, owner)
+    # (the trunk: from the soil up to the fronds, a square column outlined at its corners)
+    for y in range(y_soil, frond):
+        c = cycle[(z_front - y - (y0 + stripes[0])) % len(cycle)]
+        for x in range(tx0, tx1 + 1):
+            for z in range(z_front - w + 1, z_front + 1):
+                corner = x in (tx0, tx1) and z in (z_front - w + 1, z_front)
+                grid.set(x, y, z, dark if corner else c, owner)
 
 
 def build_escalator(grid, sprite, o, fix, owner):
