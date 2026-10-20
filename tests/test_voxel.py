@@ -379,3 +379,16 @@ def test_one_side_painted_the_other_left():
     voxel.paint_sides(g, "thing-0", (180, 180, 170), SCREEN, which=(0,))
     assert SCREEN in {c for k, c in g.cubes.items() if k[0] == 2}
     assert all(g.cubes[k] == c for k, c in right.items())
+
+
+def test_front_corners_rounded_their_bands_running_round():
+    g = voxel.Grid()
+    BAND, LINE = (200, 140, 40), (60, 60, 80)
+    for x in range(0, 20):
+        for z in range(0, 10):
+            for y in range(3):
+                g.set(x, y, z, LINE if x in (0, 19) else BAND, "thing-0")
+    n = voxel.round_corners(g, "thing-0", 5)
+    assert n == 5 * 3 * 2                                     # (both front corners, each layer)
+    assert (0, 1, 9) not in g.cubes and (0, 1, 0) in g.cubes   # (its back corners left square)
+    assert g.cubes[(1, 1, 8)] == BAND                          # (the band, not the outline, round it)

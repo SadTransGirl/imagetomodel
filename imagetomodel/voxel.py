@@ -461,6 +461,51 @@ def gba_shown(cubes):
     return set(gba_view(cubes).values())
 
 
+def round_corners(grid, owner, r):
+    """A thing's upright front corners rounded, `r` cubes round, layer by layer: at each
+    front corner of its footprint whose edges run straight at least `r` cubes each way, the cubes
+    outside a quarter circle are taken away (a counter's ends, rounded as it's drawn), and
+    what's left showing there wears the band its front wears at that height (the first
+    colour in from its outline), so the bands run on round it."""
+    cubes = {k for k, o in grid.owner.items() if o == owner}
+    layers = {}
+    for (x, y, z) in cubes:
+        layers.setdefault(y, set()).add((x, z))
+    gone = set()
+    band = {}                                          # (x, y, z) left showing -> colour
+    for y, cells in layers.items():
+        for (x, z) in cells:
+            for sx in (1, -1):
+                for sz in (1,):                        # (its front corners: its back's the wall's)
+                    if (x + sx, z) in cells or (x, z + sz) in cells:
+                        continue
+                    straight = all((x - sx * i, z) in cells and (x - sx * i, z + sz) not in cells
+                                   and (x, z - sz * i) in cells and (x + sx, z - sz * i) not in cells
+                                   for i in range(r))
+                    if not straight:
+                        continue
+                    front = [grid.cubes[(x - sx * i, y, z)] for i in range(r, 3 * r) if (x - sx * i, z) in cells]
+                    light = [c for c in front if not _dark(c)]
+                    colour = light[0] if light else (Counter(front).most_common(1)[0][0] if front else None)
+                    for i in range(r):
+                        for j in range(r):
+                            key = (x - sx * i, y, z - sz * j)
+                            if (r - 0.5 - i) ** 2 + (r - 0.5 - j) ** 2 > r * r:
+                                gone.add(key)
+                            elif colour is not None:
+                                band[key] = colour
+    for key in gone & cubes:
+        del grid.cubes[key]
+        del grid.owner[key]
+    for key, c in band.items():
+        if key in grid.cubes and key not in gone:
+            x, y, z = key
+            if any((x + dx, y, z + dz) in gone or (x + dx, y, z + dz) not in cubes
+                   for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+                grid.cubes[key] = c
+    return len(gone & cubes)
+
+
 def paint_sides(grid, owner, colour, panel=None, which=(0, 1)):
     """A thing's left and right faces (`which`: 0 its left, 1 its right), as the GBA's view
     doesn't show them, one colour, and `panel` (given) inset a cube from each face's edge:

@@ -1870,6 +1870,8 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
         fix = fix_for(sprite, o, fixes, g)
         if o["kind"] in ("flat", "escalator") or fix.get("shape") == "escalator":
             continue
+        if "round" in fix:
+            voxel.round_corners(grid, "thing-%d" % k, int(fix["round"]))
         if "sides" in fix:
             # (its sides painted as the fix says: a cabinet's plain sides, a panel inset)
             sides = fix["sides"]
