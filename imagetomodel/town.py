@@ -331,66 +331,78 @@ def square_walls(part, sprite, own, kinds, shown, owner):
                 part.set(x, y, z, c, owner)
 
 
-def hip_roof(part, sprite, o, own, kinds, shown, owner, hip, others=()):
-    """A hipped roof on a building's walls, as the GBA draws one: its front slope (the
-    shingle courses), the stripes of its two ends' slopes either side, its ridge its top
-    row. The GBA looks down at 45 degrees, so a roof that slopes at 45 degrees shows its
-    front slope two rows a cube (a step's top, then its front) and hides its back slope
-    edge on: a roof of P rows rises P/2 cubes over P/2 and falls the same behind, P deep.
-    Its ends rise as high over `hip` cubes, a cube a column, so they show the stripes the
-    GBA draws down them. Each cube the GBA's view sees wears the pixel it shows there
-    (where one shows two rows, the upper's: a shingle line is a step's top); a cube seen
-    where the picture has none is taken away (the hips' back corners); the back slope is
-    the front's, mirrored."""
-    front = [(x, y, z) for (x, v), (y, z) in shown.items() if kinds(x, v) == "up"]
+def hip_roof(part, sprite, own, kinds, shown, owner, spec):
+    """A hipped roof on a building's walls, built as a roof is, not as the GBA draws one:
+    four slopes rising `pitch` a cube (1, by default: a step up for each in) from eaves
+    overhanging the walls all round as far as the picture's roof does past them, to a
+    ridge along its length; the building made `depth` times as deep as its roof is drawn.
+    In the picture's colours: its shingles (the commonest colour of the front slope's
+    middle), a course's edge every few steps (its darker line, its lighter highlight under
+    it), its eaves trimmed and its ridge capped in the line's colour."""
+    front = [(x, y, z) for (x, v), (y, z) in shown.items() if kinds(x, v) == "up" and (x, v) in own]
     roof_px = [(x, v) for (x, v) in own if kinds(x, v) != "up"]
     if not front or not roof_px:
         return
+    pitch = float(spec.get("pitch", 1.0))
     h = max(y for _, y, _ in front) + 1                 # (its walls' height: the roof on them)
     zf = max(z for _, _, z in front)
+    feet = [x for x, y, _ in front if y == 0]
+    wx0, wx1 = min(feet), max(feet)
     rx0, rx1 = min(x for x, _ in roof_px), max(x for x, _ in roof_px)
-    rise = max(1, len({v for _, v in roof_px}) // 2)
-    zb = zf - 2 * rise + 1
-    # (the walls as deep as the roof: cut or carried back to its back)
-    walls = {(x, y): c for (x, y, z), c in part.cubes.items() if z == zf - 2 * rise // 3}
-    for key in [k for k in part.cubes if k[2] < zb]:
+    over = max(1, min(wx0 - rx0, rx1 - wx1))
+    rows = len({v for _, v in roof_px})
+    zb = zf - int(round(rows * float(spec.get("depth", BUILDING_STRETCH)))) + 1
+    # (the walls as deep: their middle carried back (or cut) to the back; nothing past
+    # them under the roof's edge but the roof)
+    mid = (zf + min(z for _, _, z in part.cubes)) // 2
+    walls = {(x, y): c for (x, y, z), c in part.cubes.items() if z == mid and wx0 <= x <= wx1 and y < h}
+    for key in [k for k in part.cubes if k[2] < mid or not wx0 <= k[0] <= wx1 or k[1] >= h]:
         del part.cubes[key]
         part.owner.pop(key, None)
-    back = min(z for _, _, z in part.cubes)
-    for z in range(zb, back):
+    for z in range(zb, mid):
         for (x, y), c in walls.items():
             part.set(x, y, z, c, owner)
-    body = Counter(sprite.colour(*p)[:3] for p in roof_px).most_common(1)[0][0]
-    roof = set()
-    for x in range(rx0, rx1 + 1):
-        dx = min(x - rx0, rx1 - x)
-        for z in range(zb, zf + 1):
-            dz = min(zf - z, z - zb)
-            top = min(rise - 1, dz, (dx + 1) * rise // max(1, hip) - 1)
-            for y in range(h, h + top + 1):
-                roof.add((x, y, z))
-                part.set(x, y, z, body, owner)
-    carve(part, own, roof, others)
-    view = voxel.gba_view(set(part.cubes))
-    # (its picture where the GBA sees it; a cube seen on two rows (a step's top and its
-    # front) wears the darker, so a line drawn a pixel thin (a shingle course's edge, the
-    # ridge's outline) is kept, a pixel thicker)
-    painted = {}
-    for (x, v) in own:
-        key = view.get((x, v))
-        if key in roof and kinds(x, v) != "up":
-            c = sprite.colour(x, v)[:3]
-            if key not in painted or sum(c) < sum(painted[key]):
-                painted[key] = c
-    for key, c in painted.items():
-        part.cubes[key] = c
-    # (the rest, the back slope: the front's, mirrored about the ridge)
-    for (x, y, z) in roof:
-        if (x, y, z) in painted:
-            continue
-        twin = (x, y, zf + zb - z)
-        if twin in painted:
-            part.cubes[(x, y, z)] = painted[twin]
+    # (the front's top rows as they run across its middle: the picture's ends' slopes
+    # coming down past its eaves there (their stripes, their gutters) are the roof's)
+    roof_colours = {sprite.colour(*p)[:3] for p in roof_px}
+    cx = (wx0 + wx1) // 2
+    for (x, y, z), c in list(part.cubes.items()):
+        if c in roof_colours and z >= zf - 1 and y >= h - 8:
+            across = next((part.cubes[(cx, y, zz)] for zz in (z, zf, zf - 1) if (cx, y, zz) in part.cubes), None)
+            if across is not None:
+                part.cubes[(x, y, z)] = across
+    # (its colours, from the front slope's middle, past its ends' slopes)
+    hip = int(spec.get("hip", (rx1 - rx0) // 6))
+    middle = Counter(sprite.colour(x, v)[:3] for (x, v) in roof_px
+                     if rx0 + hip < x < rx1 - hip and not voxel._dark(sprite.colour(x, v)[:3]))
+    tones = [c for c, _ in middle.most_common(3)] or [Counter(sprite.colour(*p)[:3] for p in roof_px).most_common(1)[0][0]]
+    shingle = tones[0]
+    line = min(tones[1:] or tones, key=sum)
+    light = max(tones[1:] or tones, key=sum)
+    hexc = lambda c: tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
+    trim = hexc(spec["trim"]) if "trim" in spec else line
+    x0, x1, z0, z1 = rx0, rx1, zb - over, zf + over
+    level = lambda d: int(d * pitch + 1e-9)
+    top = level(min((x1 - x0) // 2, (z1 - z0) // 2))
+    course = max(2, int(round(top / 4.0)))              # (a course's edge every few steps)
+    for x in range(x0, x1 + 1):
+        for z in range(z0, z1 + 1):
+            d = min(x - x0, x1 - x, z - z0, z1 - z)     # (in from the nearest eave)
+            k = level(d)
+            first = d == 0 or level(d - 1) < k          # (the edge of its step)
+            last = level(d + 1) > k
+            if k == 0 and first:
+                c = trim
+            elif k == top:
+                c = line                                # (the ridge, capped)
+            elif k % course == 0 and first:
+                c = line
+            elif (k + 1) % course == 0 and last:
+                c = light
+            else:
+                c = shingle
+            for y in range(h, h + k + 1):
+                part.set(x, y, z, c if y == h + k else shingle, owner)
 
 
 def period(rows):
@@ -457,20 +469,6 @@ def deepen(part, sprite, own, kinds, owner, factor):
     for key, c in moved.items():
         part.set(*key, c, owner)
 
-
-def carve(part, own, only, others=()):
-    """Take away the cubes of `only` (a roof's) the GBA's view would see where a thing's
-    picture has nothing (a hipped roof's back corners), until none shows there; not where
-    another thing's picture is (it may hide this one's)."""
-    while True:
-        view = voxel.gba_view(set(part.cubes))
-        stray = {k for p, k in view.items() if k in only and p not in own and p not in others}
-        if not stray:
-            return
-        for key in stray:
-            del part.cubes[key]
-            part.owner.pop(key, None)
-            only.discard(key)
 
 def outline_colour(sprite, own):
     """The colour a thing's picture is outlined in: the commonest dark colour where its own
@@ -665,7 +663,6 @@ def build_voxels(town, fixes=None, outlines=True):
                         grid.set(px, -1, py, c, "ground")
     # the things
     turned = {}
-    drawn = set().union(*(t["own"] for t in town.things)) if town.things else set()
     for k, t in enumerate(town.things):
         fix = fixes.get(fingerprint(town, t)) or {}
         owner = "thing-%d" % k
@@ -704,7 +701,7 @@ def build_voxels(town, fixes=None, outlines=True):
                 h = int(fix.get("front") or front_rows(s, o))
                 kinds = voxel.segments_kinds([["up", h], ["back", "rest"]], o["bbox"][3])
             building = t["class"] == "building"
-            hipped = building and isinstance(fix.get("roof"), dict) and "hip" in fix["roof"]
+            hipped = building and isinstance(fix.get("roof"), dict) and fix["roof"].get("shape", "hip") == "hip"
             # (a building's rows lie as drawn; it's made deeper after, its roof's pattern carried
             # on (a hipped roof sets its own depth))
             stretch = float(fix.get("stretch", 1.0))
@@ -729,7 +726,7 @@ def build_voxels(town, fixes=None, outlines=True):
             if building:
                 square_walls(part, s, own, kinds, shown, owner)
             if hipped:
-                hip_roof(part, s, o, own, kinds, shown, owner, int(fix["roof"]["hip"]), drawn - own)
+                hip_roof(part, s, own, kinds, shown, owner, fix["roof"])
             elif building:
                 deepen(part, s, own, kinds, owner, float(fix.get("deepen", BUILDING_STRETCH)))
             if building and fix.get("wrap", True):

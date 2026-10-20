@@ -112,14 +112,26 @@ def test_a_roofs_pattern_repeats_in_its_period():
     assert town.period([[c] * 6 for c in (ROOF, LINE, WALL, GRASS, ROOF, WALL, LINE, GRASS)]) is None
 
 
-def test_carving_takes_away_only_a_roofs_cubes_seen_past_its_picture():
+
+def test_a_hipped_roof_rises_to_a_ridge_over_eaves_all_round():
+    class Pic:
+        def colour(self, x, v):
+            return (ROOF if v < 6 else WALL) + (255,)
+    # (a front 10 wide, 4 high; a roof drawn 12 wide, 6 rows, a cube past it either side)
+    own = {(x, v) for x in range(1, 11) for v in range(6, 10)} | {(x, v) for x in range(12) for v in range(6)}
+    kinds = lambda x, v: "up" if v >= 6 else "back"
+    shown = {(x, v): (9 - v, 10) for x in range(1, 11) for v in range(6, 10)}
     part = voxel.Grid()
-    for y in range(4):
-        for z in range(4):
-            part.set(0, y, z, WALL, "t")                   # (a wall)
-            part.set(5, y, z, ROOF, "t")                   # (a roof's end)
-    roof = {k for k in part.cubes if k[0] == 5}
-    own = {(x, v) for x in range(1, 5) for v in range(-5, 4)}
-    town.carve(part, own, roof)
-    assert not any(k[0] == 5 for k in part.cubes) and not roof
-    assert len([k for k in part.cubes if k[0] == 0]) == 16
+    for x in range(1, 11):
+        for y in range(4):
+            for z in range(4, 11):
+                part.set(x, y, z, WALL, "t")
+    town.hip_roof(part, Pic(), own, kinds, shown, "t", {"hip": 2, "depth": 1.5})
+    roof = {k for k in part.cubes if k[1] >= 4}
+    assert min(x for x, _, _ in roof) == 0 and max(x for x, _, _ in roof) == 11      # (eaves past the walls)
+    assert max(z for _, _, z in roof) == 11                                           # (and past the front)
+    tops = {}
+    for x, y, z in roof:
+        tops[(x, z)] = max(tops.get((x, z), 0), y)
+    assert tops[(0, 6)] == 4 and tops[(6, 6)] > tops[(3, 6)] > tops[(0, 6)]           # (rising to a ridge)
+    assert not any(x in (0, 11) and y < 4 for x, y, _ in part.cubes)                  # (on nothing past the walls)
