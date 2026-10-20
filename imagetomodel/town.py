@@ -18,6 +18,7 @@ from . import room, voxel
 from .picture import PX, Sprite
 
 OBJECT_LABELS = {"building", "tree", "hedge", "fence", "sign", "prop"}
+BILLBOARDS = {"tree": 3, "flower": 2, "fence": 3, "sign": 3}   # (drawn face on: standing so, this thick)
 SINGLE_CELLS = {"fence"}         # (things the game draws a cell at a time, each a model reused)
 TREE_DEPTH = 0.4                 # (a tree as deep as wide, this much: round, but thin)
 BUILDING_STRETCH = 1.5           # (a building's roof deeper than the GBA draws it)
@@ -211,7 +212,7 @@ class Town:
             self._paint(pic, i, -1, tip, lambda a, b: True, grass)
             self._paint(pic, i, 0, self.decomp.metatile(m, 0x1C + i)[0], lambda a, b: True, grass)
             self._paint(pic, i, 1, self.decomp.metatile(m, 0x24 + i)[0], lambda a, b: True, grass)
-        return pic
+        return clean_tree(pic)
 
     def _paint(self, picture, tx, ty, im, keep, grass):
         """A tile's pixels (those `keep(i, j)` says, not the grass's) into a tree's picture at
@@ -282,6 +283,118 @@ def front_rows(sprite, o, gap=3):
     return max(1, y1 - end - 1)
 
 
+def square_walls(part, sprite, own, kinds, shown, owner):
+    """A building's walls a box: under its roof, as wide as its front stands at its foot,
+    from its front back to its back (the roof's rounded corners as drawn don't round its
+    walls)."""
+    base = [(x, y, z) for (x, v), (y, z) in shown.items() if kinds(x, v) == "up"]
+    if not base:
+        return
+    height = max(y for _, y, _ in base) + 1
+    foot = [x for x, y, _ in base if y == 0]
+    if not foot:
+        return
+    x0, x1 = min(foot), max(foot)
+    z_back = min(z for _, _, z in part.cubes)
+    fronts = {}
+    for x, y, z in base:
+        fronts[(x, y)] = max(fronts.get((x, y), z), z)
+    body = Counter(c for (x, y, z), c in part.cubes.items() if y < height and not voxel._dark(c)).most_common(1)
+    if not body:
+        return
+    roof = {}                                 # (its roof's level: the nearest roof cube's colour)
+    for (x, y, z), c in part.cubes.items():
+        if y == height - 1 and (x, y + 1, z) not in part.cubes:
+            roof.setdefault(z, []).append((x, c))
+    for x in range(x0, x1 + 1):
+        for y in range(height):
+            zf = fronts.get((x, y))
+            if zf is None:
+                continue
+            for z in range(z_back, zf):
+                if (x, y, z) in part.cubes:
+                    continue
+                c = body[0][0]
+                if y == height - 1:
+                    near = roof.get(z) or roof.get(min(roof, key=lambda k: abs(k - z))) if roof else None
+                    if near:
+                        c = min(near, key=lambda r: abs(r[0] - x))[1]
+                part.set(x, y, z, c, owner)
+
+
+def outline_colour(sprite, own):
+    """The colour a thing's picture is outlined in: the commonest dark colour where its own
+    pixels meet the outside (a house's navy, not its roof's darkest red)."""
+    edge = Counter()
+    for (x, y) in own:
+        if any((x + dx, y + dy) not in own for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))):
+            c = sprite.colour(x, y)[:3]
+            if 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2] < 110:
+                edge[c] += 1
+    return edge.most_common(1)[0][0] if edge else voxel._darkest(sprite, own)
+
+
+def wrap_sides(part, sprite, own, kinds, shown, inset):
+    """A building's front carried round its sides and its back, row by row as the GBA
+    draws its front (its siding's stripes, its bricks' joints), but for its glass, its door
+    and its outlines: each side's cubes at a height take its front's wall at that height,
+    going on round from the corner; the back's, from its left. Not the cubes the GBA's view
+    shows."""
+    rows = {}
+    for (x, v), (y, z) in shown.items():
+        if kinds(x, v) == "up" and (x, v) not in inset:
+            rows.setdefault(y, []).append((x, z, sprite.colour(x, v)[:3]))
+    if not rows:
+        return
+    # (its wall: its front's commonest colours (not its glass, not its outlines); at each
+    # height the longest run of them unbroken along the front, between its windows)
+    counts = Counter(c for r in rows.values() for _, _, c in r if not voxel._dark(c) and not _is_glass(c))
+    total = sum(counts.values()) or 1
+    wall = {c for c, n in counts.most_common(4) if n >= 0.04 * total}
+    seq = {}
+    for y, r in rows.items():
+        best, run = [], []
+        last = None
+        for x, _, c in sorted(r):
+            if c in wall and (last is None or x == last + 1):
+                run.append(c)
+            else:
+                run = [c] if c in wall else []
+            last = x
+            if len(run) > len(best):
+                best = list(run)
+        if best:
+            seq[y] = best
+    if not seq:
+        return
+    front = {y: max(z for _, z, _ in r) for y, r in rows.items()}
+    keep = voxel.gba_shown(set(part.cubes))
+    ends, backs = {}, {}
+    for (x, y, z) in part.cubes:
+        lo, hi = ends.get((y, z), (x, x))
+        ends[(y, z)] = (min(lo, x), max(hi, x))
+        backs[(x, y)] = min(backs.get((x, y), z), z)
+    left = {y: min(x for x, _, _ in r) for y, r in rows.items()}
+    # (a height with no wall of its own (all glass, a sill) takes the nearest that has)
+    known = sorted(seq)
+    for y in rows:
+        if y not in seq:
+            seq[y] = seq[min(known, key=lambda k: abs(k - y))]
+    for key in list(part.cubes):
+        x, y, z = key
+        if key in keep or y not in seq:
+            continue
+        line = seq[y]
+        lo, hi = ends[(y, z)]
+        d = max(0, front[y] - z)
+        if x == lo:
+            part.cubes[key] = line[d % len(line)]
+        elif x == hi:
+            part.cubes[key] = line[::-1][d % len(line)]
+        elif z == backs[(x, y)]:
+            part.cubes[key] = line[(x - left[y]) % len(line)]
+
+
 def openings(town, t, own, kinds, depth=1):
     """A building's windows and doors, set in `depth` cubes: on its front (its rows that
     stand), its glass (light blue), and in each door's cell (the map's warps) what isn't
@@ -303,6 +416,41 @@ def openings(town, t, own, kinds, depth=1):
 
 def fingerprint(town, t):
     return room.fingerprint(town.sprite, t)
+
+
+def clean_tree(pic):
+    """A tree's picture without what the GBA draws round it: the glow round its edge (a
+    colour only on its edge), its outline (its darkest colour, where it meets the outside),
+    and its shadow on the ground (below its crown's last light row, all but its trunk, the
+    trunk carried up to the crown)."""
+    pic = dict(pic)
+    edge = lambda p: any((p[0] + dx, p[1] + dy) not in pic for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+    lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    sat = lambda c: colorsys.rgb_to_hsv(*(k / 255.0 for k in c))[1]
+    # (a colour only on the edge: the glow)
+    on_edge = Counter(c for p, c in pic.items() if edge(p))
+    inside = Counter(c for p, c in pic.items() if not edge(p))
+    for c in [c for c in on_edge if on_edge[c] > 3 * inside.get(c, 0)]:
+        pic = {p: k for p, k in pic.items() if k != c}
+    # (the outline: its darkest green where it meets the outside)
+    greens = [c for c in set(pic.values()) if sat(c) > 0.3]
+    if greens:
+        dark = min(greens, key=lum)
+        pic = {p: c for p, c in pic.items() if not (c == dark and edge(p))}
+    # (the shadow: below the crown's light, but its trunk (not green))
+    light = sorted(set(pic.values()), key=lum)[-2:]
+    crown = max((y for (x, y), c in pic.items() if c in light), default=None)
+    if crown is not None:
+        trunk = {p: c for p, c in pic.items() if p[1] > crown and sat(c) <= 0.3}
+        pic = {p: c for p, c in pic.items() if p[1] <= crown or p in trunk}
+        if trunk:
+            xs = {x for x, _ in trunk}
+            top = min(y for _, y in trunk)
+            core = Counter(trunk.values()).most_common(1)[0][0]
+            for x in xs:
+                for y in range(crown + 1, top):
+                    pic[(x, y)] = core
+    return pic
 
 
 def _petal(r, g, b):
@@ -373,13 +521,13 @@ def build_voxels(town, fixes=None, outlines=True):
         o = dict(t)
         own = (set(t["own"]) | room.fix_included(s, o, fix)) - room.fix_dropped(o, fix)
         o["own"] = own
-        shape = fix.get("shape") or ("billboard" if t["class"] in ("tree", "flower") else "box")
+        shape = fix.get("shape") or ("billboard" if t["class"] in BILLBOARDS else "box")
         part = voxel.Grid()
         if shape == "billboard":
             # (a tree, a flower: its picture standing facing the front, as the GBA's sprites
             # are, a few cubes thick)
             pic = t.get("picture") or {p: s.colour(*p)[:3] for p in own}
-            voxel.billboard(part, pic, thick=int(fix.get("thick", 3 if t["class"] == "tree" else 2)), owner=owner)
+            voxel.billboard(part, pic, thick=int(fix.get("thick", BILLBOARDS[t["class"]])), owner=owner)
         elif shape == "round":
             rd = float(fix.get("round_depth", TREE_DEPTH if t["class"] == "tree" else 0.5))
             foot = max(v for _, v in own)
@@ -390,8 +538,7 @@ def build_voxels(town, fixes=None, outlines=True):
             z_axis = foot - r_foot * rd if t["class"] != "tree" else foot - r_all * rd
             voxel.lathe(part, s, own, 0, z_axis, owner, depth=rd)
             turned[k] = voxel.lathe_outlined(s, own, 0)
-        elif shape == "slab" or (shape == "box" and t["class"] in ("fence", "sign") and "profile" not in fix):
-            # (a fence, a sign: drawn face on, standing, as thick as a post)
+        elif shape == "slab":
             voxel.unproject_slab(part, s, own, 0, owner, thick=int(fix.get("thick", 3)))
         elif shape == "plant":
             room.build_plant(part, s, o, own, fix, owner, recess=room.fix_recess(o, fix), raised=room.fix_raised(s, o, fix))
@@ -408,9 +555,27 @@ def build_voxels(town, fixes=None, outlines=True):
             building = t["class"] == "building"
             stretch = float(fix.get("stretch", BUILDING_STRETCH if building else 1.0))
             inset = openings(town, t, own, kinds, int(fix.get("inset", 1))) if building else None
-            voxel.unproject_profile(part, s, own, kinds, owner=owner, recess=room.fix_recess(o, fix),
-                                    raised=room.fix_raised(s, o, fix), stretch=stretch, foot=o["bbox"][3],
-                                    inset=inset)
+            # (its parts, each a region built by a profile of its own (a chimney: a box on the
+            # roof, the roof behind it still the roof), and the rest by the thing's)
+            x0, y0 = o["bbox"][0], o["bbox"][1]
+            rest = set(own)
+            groups = []
+            for prt in fix.get("parts", []):
+                pix = {(x, v) for (x, v) in rest if prt["rows"][0] <= v - y0 <= prt["rows"][1]
+                       and prt["cols"][0] <= x - x0 <= prt["cols"][1]}
+                rest -= pix
+                groups.append((pix, voxel.segments_kinds(prt["profile"], o["bbox"][3])))
+            groups.append((rest, kinds))
+            shown = {}
+            for pix, kd in groups:
+                if pix:
+                    shown.update(voxel.unproject_profile(part, s, pix, kd, owner=owner, recess=room.fix_recess(o, fix),
+                                                         raised=room.fix_raised(s, o, fix), stretch=stretch,
+                                                         foot=o["bbox"][3], inset=inset))
+            if building:
+                square_walls(part, s, own, kinds, shown, owner)
+            if building and fix.get("wrap", True):
+                wrap_sides(part, s, own, kinds, shown, inset or {})
         for key, c in part.cubes.items():
             grid.set(*key, c, owner)
     # every thing finished as a room's are: its corners, its sides, its outline
@@ -426,5 +591,5 @@ def build_voxels(town, fixes=None, outlines=True):
                 if side and "colour" in side:
                     voxel.paint_sides(grid, owner, hexc(side["colour"]), hexc(side["panel"]) if "panel" in side else None, which)
         if outlines and fix.get("outline", True):
-            voxel.outline(grid, owner, voxel._darkest(s, t["own"]), keep_shown=k not in turned, where=turned.get(k))
+            voxel.outline(grid, owner, outline_colour(s, t["own"]), keep_shown=k not in turned, where=turned.get(k))
     return grid

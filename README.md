@@ -307,16 +307,23 @@ walked through. Nothing of the game's is kept: it's read from your copy.
   wherever it stands, as the game draws the same tree again and again: its picture from
   the pines' own tiles alone (a tip's top layer, a body, a foot, less the grass), not
   from a row of them overlapping or the variants that end one; placed at each tree's body
-  (or below a tip whose body is past the map's edge), standing facing the front as the
-  GBA's sprites are, three cubes thick (a billboard; `thick` in a fix, or `"shape":
-  "round"` to turn it round);
-- **a fence** is a cell at a time, as the game draws it: the same post again;
+  (or below a tip whose body is past the map's edge), without what the GBA draws round
+  it (the glow round its edge, its outline, its shadow on the ground: its trunk carried
+  up to its crown), standing facing the front as the GBA's sprites are, three cubes thick
+  (a billboard; `thick` in a fix, or `"shape": "round"` to turn it round);
+- **a fence** is a cell at a time, as the game draws it: the same post again; a fence, a
+  sign and a mailbox stand facing the front too, three cubes thick;
 - **a building** stands its front from its foot (every column, a roof's edge past its
   walls too), its roof half as deep again as drawn (the GBA draws a roof in fewer rows
   than it's deep; `stretch` in a fix), its **windows** (their light blue glass) and its
   **door** (in the cell the map's warp is, what isn't its wall) set in a cube along the
-  line of sight (`inset`: 0 for none), its picture where the GBA draws it; something on
-  its roof stands by its fix's `profiles` (Oak's lab's chimney, in `fixes/towns.json`);
+  line of sight (`inset`: 0 for none), its picture where the GBA draws it; its walls a
+  box (as wide as its front stands at its foot, back to its back), its front's wall
+  carried round its sides and its back row by row (at each height its longest run of
+  plain wall between its windows: its siding, its bricks; `"wrap": false` for none); its
+  outline the colour its picture is outlined in (its silhouette's commonest dark colour);
+  something on its roof stands by its fix's `parts` (a region built by a profile of its
+  own: Oak's lab's chimney, in `fixes/towns.json`);
 - **the flowers** drawn on the ground (a cell of ground with many bright petals) stand
   up, each its own thing (where its tile differs from the grass of its bottom layer: its
   leaves too), facing the front, two cubes thick.
