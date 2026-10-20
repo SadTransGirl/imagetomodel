@@ -406,3 +406,14 @@ def test_a_top_stretched_deeper_than_drawn():
     # (its front where the GBA draws it, its top's colours the same, only deeper)
     assert {c for (x, y, z), c in deep.cubes.items() if z == 12} == {c for (x, y, z), c in drawn.cubes.items() if z == 12}
     assert {c for (x, y, z), c in deep.cubes.items() if y == 4} == {c for (x, y, z), c in drawn.cubes.items() if y == 4}
+
+
+def test_a_column_drawn_only_high_starts_at_the_things_foot():
+    s = _box_sprite()
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    own -= {(2, v) for v in range(6, 13)}                     # (its left column's foot not drawn)
+    kinds = voxel.segments_kinds([["up", 5], ["back", "rest"]], 13)
+    g = voxel.Grid()
+    shown = voxel.unproject_profile(g, s, own, kinds, foot=13)
+    # (its left column's top lies with the others' tops, not stood up from its own lowest)
+    assert shown[(2, 4)] == shown[(6, 4)]

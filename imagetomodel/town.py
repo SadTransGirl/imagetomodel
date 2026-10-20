@@ -141,6 +141,9 @@ class Town:
             out.append({"class": c, "tiles": sorted(group)})
         for t in out:
             t["own"] = self._own(t.get("pixels") or self._cells(t["tiles"]))
+            if t["class"] != "tree":
+                # (the shadow the GBA draws beside it, a house's down a mailbox's cell, isn't it)
+                t["own"] = room._main_pieces(t["own"] - room._drop_shadow(self.sprite, t["own"]))
             xs = [x for x, _ in t["own"]] or [t["tiles"][0][0] * PX]
             ys = [y for _, y in t["own"]] or [t["tiles"][0][1] * PX]
             t["bbox"] = [min(xs), min(ys), max(xs) + 1, max(ys) + 1]
@@ -278,11 +281,13 @@ def build_voxels(town, fixes=None, outlines=True):
                 if "profiles" in fix:
                     kinds = voxel.columns_kinds(fix["profiles"], kinds, o["bbox"][0], o["bbox"][3])
             else:
+                # (its front rows up from its foot, the rest lying: from the thing's foot, not
+                # each column's, so a roof's edge past its walls lies with the roof)
                 h = int(fix.get("front") or front_rows(s, o))
-                kinds = voxel.box_kinds(lambda x, top, zf, h=h: h, own)
+                kinds = voxel.segments_kinds([["up", h], ["back", "rest"]], o["bbox"][3])
             stretch = float(fix.get("stretch", 1.0))
             voxel.unproject_profile(part, s, own, kinds, owner=owner, recess=room.fix_recess(o, fix),
-                                    raised=room.fix_raised(s, o, fix), stretch=stretch)
+                                    raised=room.fix_raised(s, o, fix), stretch=stretch, foot=o["bbox"][3])
         for key, c in part.cubes.items():
             grid.set(*key, c, owner)
     # every thing finished as a room's are: its corners, its sides, its outline

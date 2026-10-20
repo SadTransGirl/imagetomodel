@@ -367,7 +367,7 @@ def read_vox(path):
 
 # --- a profile: each row of a thing standing or lying ---
 
-def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None, stretch=1.0):
+def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None, stretch=1.0, foot=None):
     """A thing's cubes, row by row up each column from its foot: `kind_of(x, v)` says
     whether row v stands ("up": a cube on top of the last, its front face the pixel) or lies
     ("back": a cube behind the last, its top face the pixel). A box is its front rows up and
@@ -382,6 +382,9 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     `stretch`: how many cubes deep each row that lies is (at least 1; the GBA draws a top
     shorter than it's deep: a cushion's square top in fewer rows than it's wide), the rows
     past each moved back as far, so drawn a little higher than the GBA draws them.
+    `foot`: the row every column starts up from (the thing's foot), rows with nothing drawn
+    in a column going by as the others' do: a roof's edge past its walls lies with the roof
+    (else each column starts at its own lowest pixel).
     Returns {(x, v): (y, z)}, the cube each pixel is shown on."""
     recess = recess or {}
     raised = raised or set()
@@ -395,7 +398,7 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     upright = {}                                       # (x, y) -> a standing pixel's colour
     proud = set()                                      # (the raised cubes: the picture's too)
     for x, vs in cols.items():
-        top, zf = vs[0], vs[-1] + 1
+        top, zf = vs[0], (foot if foot is not None else vs[-1] + 1)
         y, z = 0, zf
         last = None
         deep = 0.0
