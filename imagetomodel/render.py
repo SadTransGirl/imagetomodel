@@ -84,8 +84,8 @@ def render(mesh, texture, view="three-quarter", scale=4, shade=None, frame=None,
         if x_min > x_max or y_min > y_max:
             continue
         area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0])
-        if abs(area) < 1e-9:
-            continue
+        if abs(area) < 1e-3 * scale * scale:
+            continue                                  # (edge on: a wall between pixels in relief)
         gx, gy = np.meshgrid(np.arange(x_min, x_max + 1) + 0.5, np.arange(y_min, y_max + 1) + 0.5)
         w0 = ((px[1] - gx) * (py[2] - gy) - (px[2] - gx) * (py[1] - gy)) / area
         w1 = ((px[2] - gx) * (py[0] - gy) - (px[0] - gx) * (py[2] - gy)) / area

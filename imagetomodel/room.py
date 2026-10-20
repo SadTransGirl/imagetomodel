@@ -562,8 +562,26 @@ def objects(info, g, things):
         a, b = first["rows"]
         tiles = [(by_run[k]["x"], ty) for k in group for ty in range(a, b + 1)]
         own = set()
+        block = set()
         for tx, ty in tiles:
             own |= _own_pixels(info, g, tx, ty, bands, first["kind"])
+            x0, y0 = g["ox"] + tx * PX, g["oy"] + ty * PX
+            block |= {(x, y) for y in range(y0, y0 + PX) for x in range(x0, x0 + PX)}
+        sprite = info["sprite"]
+        drawn = {p for p in block if sprite.colour(*p) is not None}
+        # (background by colour that can't be reached from the block's border through
+        # background is inside the thing: a highlight in a pot, a screen in a frame)
+        back = (drawn - own)
+        seen = set()
+        todo = [p for p in back if not all((p[0] + dx, p[1] + dy) in block for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+        todo += [p for p in back if any((p[0] + dx, p[1] + dy) not in drawn and (p[0] + dx, p[1] + dy) in block for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
+        while todo:
+            p = todo.pop()
+            if p in seen or p not in back:
+                continue
+            seen.add(p)
+            todo += [(p[0] + dx, p[1] + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+        own |= back - seen
         if not own:
             continue
         xs = [p[0] for p in own]
@@ -701,7 +719,110 @@ def painted_faces(sprite, o, front_rows, w, d, with_top):
     return faces
 
 
-def add_thing(mesh, sprite, o, objs, wall_z, front_height="auto", low_height=8.0, spec=None, info=None, name="thing", tops="painted"):
+RAY = (0.0, 1.0, 1.0)             # (a step along the GBA's line of sight: up and forward, alike)
+
+
+def depth_map(sprite, o, x0, y0, w, h, levels):
+    """How far each pixel of a thing's face stands out, as voxel art of a sprite does it:
+    its brightness, over `levels` steps (the lightest out, the darkest in), outlines at the
+    base; None where nothing is drawn. Rows of ints."""
+    own = o["own"]
+    vals = []
+    for y in range(y0, y0 + h):
+        for x in range(x0, x0 + w):
+            c = sprite.colour(x, y) if (x, y) in own else None
+            if c is not None and not _dark(c):
+                vals.append(luma(c))
+    lo, hi = (min(vals), max(vals)) if vals else (0.0, 1.0)
+    span = max(hi - lo, 0.05)
+    rows = []
+    for y in range(y0, y0 + h):
+        row = []
+        for x in range(x0, x0 + w):
+            c = sprite.colour(x, y) if (x, y) in own else None
+            if c is None:
+                row.append(None)
+            elif _dark(c) or levels <= 0:
+                row.append(0)
+            else:
+                row.append(int(round(levels * (luma(c) - lo) / span)))
+        rows.append(row)
+    return rows
+
+
+def relief(mesh, origin, du, dv, depths, name, uv_at=None, thick=0.0):
+    """A face in relief: its pixel grid from `origin` (a corner, 3D) along `du` (a pixel
+    across) and `dv` (a pixel down the picture), each pixel raised by its depth along the
+    GBA's line of sight (so its picture stays put from the GBA's angle), with walls between
+    pixels of different depths and round the edge (down to -`thick` behind a cutout, so it
+    is a slab). `uv_at(i, j)`: a pixel's texture coordinate (its picture's, by default)."""
+    ox, oy, oz = origin
+    h = len(depths)
+    w = len(depths[0]) if h else 0
+
+    def at(i, j, d):
+        return (ox + i * du[0] + j * dv[0] + d * RAY[0], oy + i * du[1] + j * dv[1] + d * RAY[1], oz + i * du[2] + j * dv[2] + d * RAY[2])
+
+    def uv(i, j):
+        return uv_at(i, j) if uv_at else None
+    base = -thick
+    for j in range(h):
+        i = 0
+        while i < w:
+            d = depths[j][i]
+            if d is None:
+                i += 1
+                continue
+            i1 = i
+            while i1 + 1 < w and depths[j][i1 + 1] == d:
+                i1 += 1
+            pts = [at(i, j, d), at(i, j + 1, d), at(i1 + 1, j + 1, d), at(i1 + 1, j, d)]
+            if uv_at:
+                mesh.face(pts, [uv(i, j), uv(i, j), uv(i1, j), uv(i1, j)], name=name)
+            else:
+                mesh.face(pts, name=name)
+            if thick > 0:
+                mesh.face(pts[::-1] if False else [at(i, j, base), at(i1 + 1, j, base), at(i1 + 1, j + 1, base), at(i, j + 1, base)],
+                          [uv(i, j), uv(i1, j), uv(i1, j), uv(i, j)] if uv_at else None, name=name)
+            i = i1 + 1
+    # the walls between pixels of different depths: across (between columns) and down
+    def wall(a, b, d_lo, d_hi, colour_ij):
+        if d_lo is None:
+            d_lo = base
+        if d_hi is None:
+            d_hi = base
+        if abs(d_hi - d_lo) < 1e-9:
+            return
+        pts = [at(*a, d_lo), at(*b, d_lo), at(*b, d_hi), at(*a, d_hi)]
+        t = uv(*colour_ij) if uv_at else _pixel_uv(origin, du, dv, colour_ij)
+        mesh.face(pts, t, name=name)
+    for j in range(h):
+        for i in range(w + 1):
+            left = depths[j][i - 1] if i > 0 else None
+            right = depths[j][i] if i < w else None
+            if left is None and right is None:
+                continue
+            owner = (i, j) if right is not None and (left is None or right >= left) else (i - 1, j)
+            wall((i, j), (i, j + 1), left, right, owner)
+    for i in range(w):
+        for j in range(h + 1):
+            up = depths[j - 1][i] if j > 0 else None
+            down = depths[j][i] if j < h else None
+            if up is None and down is None:
+                continue
+            owner = (i, j) if down is not None and (up is None or down >= up) else (i, j - 1)
+            wall((i, j), (i + 1, j), up, down, owner)
+
+
+def _pixel_uv(origin, du, dv, ij):
+    """A pixel's own texture coordinate: where the GBA draws its middle."""
+    i, j = ij
+    p = (origin[0] + (i + 0.5) * du[0] + (j + 0.5) * dv[0], origin[1] + (i + 0.5) * du[1] + (j + 0.5) * dv[1],
+         origin[2] + (i + 0.5) * du[2] + (j + 0.5) * dv[2])
+    return (p[0], p[2] - p[1])
+
+
+def add_thing(mesh, sprite, o, objs, wall_z, front_height="auto", low_height=8.0, spec=None, info=None, name="thing", tops="painted", levels=3, thick=2.0):
     """One thing's faces added to a mesh: a cutout standing, or a box round its own pixels,
     its front standing at its foot, its top lying back from its head (or painted, against
     the wall), its sides and back painted from its art."""
@@ -726,17 +847,23 @@ def add_thing(mesh, sprite, o, objs, wall_z, front_height="auto", low_height=8.0
     if kind == "flat" or (kind == "on-wall" and not o["cutout"]):
         return
     if o["cutout"]:
+        # (a hair forward along the GBA's line of sight: up and forward alike keeps its
+        # picture where the GBA draws it)
         d = 0.5
-        y_foot = -d
+        y_foot = d
         z_foot = zb + d
         if kind == "on-wall":
             z_foot = wall_z + d
         if kind == "on-band":
             under = next((u for u in objs if o["under"] in u["runs"]), None)
             h_under = front_height_of(under) if under else float(low_height)
-            y_foot = h_under - d
+            y_foot = h_under + d
             z_foot = zb + h_under + d
-        mesh.face([(x0, y_foot, z_foot), (x1, y_foot, z_foot), (x1, y_foot + tall, z_foot), (x0, y_foot + tall, z_foot)], name=name + ":cutout")
+        # (a slab: each pixel a voxel `thick` deep, raised by its brightness, its silhouette
+        # walled round)
+        w, h = int(round(x1 - x0)), int(round(tall))
+        depths = depth_map(sprite, o, int(round(x0)), int(round(y0)), w, h, levels)
+        relief(mesh, (x0, y_foot + tall, z_foot), (1.0, 0.0, 0.0), (0.0, -1.0, 0.0), depths, name + ":cutout", thick=thick)
         return
     if kind == "against-wall":
         h = tall
@@ -751,8 +878,13 @@ def add_thing(mesh, sprite, o, objs, wall_z, front_height="auto", low_height=8.0
         z_front = zb
         z_back = y0 + h
     depth = z_front - z_back
-    mesh.face([(x0, 0, z_front), (x1, 0, z_front), (x1, h, z_front), (x0, h, z_front)], name=name)
+    w_px, h_px = int(round(x1 - x0)), int(round(h))
     front_rows = range(int(round(y1 - h)), int(round(y1)))
+    if levels > 0 and h_px >= 1:
+        depths = depth_map(sprite, o, int(round(x0)), int(round(y1 - h)), w_px, h_px, levels)
+        relief(mesh, (x0, h, z_front), (1.0, 0.0, 0.0), (0.0, -1.0, 0.0), depths, name)
+    else:
+        mesh.face([(x0, 0, z_front), (x1, 0, z_front), (x1, h, z_front), (x0, h, z_front)], name=name)
     faces = painted_faces(sprite, o, front_rows, x1 - x0, depth, with_top=(kind in ("against-wall", "tall")))
     w = x1 - x0
     if depth > 1e-6:
@@ -763,6 +895,11 @@ def add_thing(mesh, sprite, o, objs, wall_z, front_height="auto", low_height=8.0
             pu, pv = mesh.patch(faces["top"])
             dp = len(faces["top"])
             mesh.face(top, [(pu, pv), (pu, pv + dp), (pu + w, pv + dp), (pu + w, pv)], name=name)
+        elif levels > 0 and int(round(depth)) >= 1:
+            # (the top as drawn, in relief: a pixel row of the picture a pixel back)
+            d_px = int(round(depth))
+            depths = depth_map(sprite, o, int(round(x0)), int(round(y0)), w_px, d_px, levels)
+            relief(mesh, (x0, h, z_back), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), depths, name)
         else:
             mesh.face(top, name=name)
         dp = len(faces["left"][0]) if faces["left"] else 1
@@ -778,7 +915,7 @@ def add_thing(mesh, sprite, o, objs, wall_z, front_height="auto", low_height=8.0
                   [(pu, pv + h), (pu + w, pv + h), (pu + w, pv), (pu, pv)], name=name)
 
 
-def build_object(sprite, g, info, things, k, front_height="auto", low_height=8.0, spec=None, tops="painted"):
+def build_object(sprite, g, info, things, k, front_height="auto", low_height=8.0, spec=None, tops="painted", levels=3, thick=2.0):
     """One thing as a model of its own: (the sprite cropped to its tiles, its mesh in that
     sprite's pixels, the pixels to cut, its block (tx, ty, cols, rows)); None for a thing
     that is only paint on the wall or the floor."""
@@ -793,7 +930,7 @@ def build_object(sprite, g, info, things, k, front_height="auto", low_height=8.0
     crop = sprite.crop(bx, by, cols * PX, rows * PX)
     wall_z = g["oy"] + (info["wall_first"] + info["wall_rows"]) * PX
     mesh = Mesh(strip_v=sprite.H, strip_w=crop.W)
-    add_thing(mesh, sprite, o, objs, wall_z, front_height, low_height, spec, info, name="thing-%d" % k, tops=tops)
+    add_thing(mesh, sprite, o, objs, wall_z, front_height, low_height, spec, info, name="thing-%d" % k, tops=tops, levels=levels, thick=thick)
     moved = rebased(mesh, bx, by, sprite.H, crop.H, crop.W)
     cut = []
     for tx, ty in o["tiles"]:
@@ -805,7 +942,7 @@ def build_object(sprite, g, info, things, k, front_height="auto", low_height=8.0
     return crop, moved, cut, (bx // PX, by // PX, cols, rows)
 
 
-def build(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4.0, spec=None, tops="painted"):
+def build(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4.0, spec=None, tops="painted", levels=3, thick=2.0):
     """The room's mesh, in the picture's pixels (x across, y up, z down the picture); each
     polygon named for the object it belongs to ("floor", "wall", "side-left", "thing-3").
     The walls are thin, their top band plain; a thing is a box with its sides its own
@@ -910,7 +1047,25 @@ def build(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thi
                 quad = [(ax, 0, az), (bx, 0, bz), (bx, wall_h, bz), (ax, wall_h, az)]
                 if tx != wall_cols[0]:
                     quad = quad[::-1]
-                mesh.face(quad, name="wall")          # (the picture where the GBA draws it; seen from both sides)
+                # (the wall's band rows, made up, run round the corner; seen from both sides)
+                if wall_patches:
+                    length = ((bx - ax) ** 2 + (bz - az) ** 2) ** 0.5
+                    uvs = []
+                    # (one row's patch stretched along it, a face per wall row)
+                    for ty in range(first, wall_last + 1):
+                        y_top = wall_h - (ty - first) * PX
+                        y_bot = y_top - PX
+                        pu, pv = wall_patches[ty]
+                        q = [(ax, y_bot, az), (bx, y_bot, bz), (bx, y_top, bz), (ax, y_top, az)]
+                        if tx != wall_cols[0]:
+                            q = q[::-1]
+                        uvs = []
+                        for p in q:
+                            along = ((p[0] - ax) ** 2 + (p[2] - az) ** 2) ** 0.5
+                            uvs.append((pu + min(PX - 0.01, along * (PX - 0.02) / max(length, 1e-6)), pv + (y_top - p[1])))
+                        mesh.face(q, uvs, name="wall")
+                else:
+                    mesh.face(quad, name="wall")
                 # (the straight wall on from the cut to the tile's end)
                 xs0, xs1 = (x0 + c, x0 + PX) if tx == wall_cols[0] else (x0, x0 + PX - c)
                 if xs1 - xs0 > 0.5:
@@ -972,7 +1127,7 @@ def build(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thi
     # the things: each a cutout standing, or a box round its own pixels (the floor showing
     # round it), its sides and back painted from its art
     for k, o in enumerate(objs):
-        add_thing(mesh, sprite, o, objs, wall_z, front_height, low_height, spec, info, name="thing-%d" % k, tops=tops)
+        add_thing(mesh, sprite, o, objs, wall_z, front_height, low_height, spec, info, name="thing-%d" % k, tops=tops, levels=levels, thick=thick)
     return mesh
 
 

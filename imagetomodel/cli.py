@@ -52,6 +52,8 @@ def main(argv=None):
     r.add_argument("--front-height", default="auto", help="how tall a free-standing thing's front is (pixels, unsquashed): 'auto' reads it from the art's shading (the darker band along its bottom)")
     r.add_argument("--low-height", type=float, default=8.0, help="how tall a thing of one tile is (pixels)")
     r.add_argument("--wall-thick", type=float, default=4.0, help="how thick the walls down the sides are (pixels)")
+    r.add_argument("--relief", type=int, default=3, help="how many pixels the lightest pixel of a thing's face stands out over the darkest, as voxel art (0: flat)")
+    r.add_argument("--thick", type=float, default=2.0, help="how thick a cutout (a plant, a flower) is (pixels)")
     r.add_argument("--tops", choices=("painted", "picture"), default="painted", help="the top of a thing standing against the wall: painted from its art, or the picture the GBA draws there (the wall's band: exact from its angle)")
     r.add_argument("--views", default="three-quarter,front", help="which other views to draw (%s)" % ",".join(VIEWS))
     r.add_argument("--preview-scale", type=int, default=4)
@@ -111,7 +113,7 @@ def room_main(a):
     things = room.runs(info, g)
     front = "auto" if str(a.front_height) == "auto" else float(a.front_height)
     mesh = room.build(sprite, g, info, things, front_height=front, low_height=a.low_height,
-                      wall_thick=a.wall_thick, spec=spec, tops=a.tops)
+                      wall_thick=a.wall_thick, spec=spec, tops=a.tops, levels=a.relief, thick=a.thick)
     objs = room.objects(info, g, things)
     cut = room.cutouts(sprite, g, info, things)
     os.makedirs(a.out, exist_ok=True)
@@ -131,7 +133,7 @@ def room_main(a):
     os.makedirs(things_dir, exist_ok=True)
     made = 0
     for k, o in enumerate(objs):
-        one = room.build_object(sprite, g, info, things, k, front_height=front, low_height=a.low_height, spec=spec, tops=a.tops)
+        one = room.build_object(sprite, g, info, things, k, front_height=front, low_height=a.low_height, spec=spec, tops=a.tops, levels=a.relief, thick=a.thick)
         if one is None:
             continue
         crop, omesh, ocut, block = one
