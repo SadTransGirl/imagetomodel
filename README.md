@@ -73,8 +73,9 @@ shows two rows there). How tall each front is comes from the art:
 - **standing on its own** (a plant, a flower): its pixels standing, thickened backwards
   (`--thick`) only as far as the GBA's view keeps.
 
-The sides and the back the GBA never drew take each row's body colour (the first colour
-inside its outline). Every thing is then **outlined** as the GBA outlines a sprite, from the
+The sides the GBA never drew take, at each height, the colour its front's edge is there
+(the first inside its outline), its back the thing's body colour; nothing it reaches back
+to past the wall is built. Every thing is then **outlined** as the GBA outlines a sprite, from the
 sides and the back too: the cubes on the edge of its silhouette seen from the left, the
 right, the back and the front wear its outline colour, but for those the GBA's view shows,
 which keep the picture's. A round thing is outlined only where its picture is (a plant's
@@ -137,6 +138,8 @@ own `building_fixes.json` does:
   rim, its picture where the GBA draws it);
 - `raise`: pixels of these colours (within rows, and `cols`) a cube proud (a tray's balls,
   keys, a tab); one, or a list;
+- `sides`: `{"colour": "rrggbb", "panel": "rrggbb"}` its left and right faces one colour
+  (where its front is crossed by lines that would band them), a panel inset a cube;
 - `keep`: the holes closed in it keep the picture's colours (a tab the counter's colour,
   which would otherwise be taken for the counter);
 - `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far

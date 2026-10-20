@@ -329,6 +329,7 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     heights = {}                                       # (x, z) -> height of the solid there
     hollow = set()
     by_height = {}                                     # y -> Counter of standing colours
+    upright = {}                                       # (x, y) -> a standing pixel's colour
     proud = set()                                      # (the raised cubes: the picture's too)
     for x, vs in cols.items():
         top, zf = vs[0], vs[-1] + 1
@@ -345,6 +346,7 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                 if c is not None:
                     placed[(x,) + cell] = c
                     by_height.setdefault(y, Counter())[c] += 0 if _dark(c) else 1
+                    upright[(x, y)] = c
                     if (x, v) in raised:
                         placed[(x, y, z - k)] = c
                         proud.add((x, y, z - k))
@@ -381,6 +383,11 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                 placed[(x, y - 1, z - 1)] = outline if z - 1 == back_of(x) else (body or outline)
                 heights[(x, z - 1)] = max(heights.get((x, z - 1), 0), y)
                 z -= 1
+    # (nothing past the wall it reaches back to: what's drawn past it is behind it)
+    if back_of is not None:
+        placed = {k: c for k, c in placed.items() if k[2] >= back_of(k[0])}
+        heights = {k: h for k, h in heights.items() if k[1] >= back_of(k[0])}
+        shown = {p: cell for p, cell in shown.items() if cell[1] >= back_of(p[0])}
     # the solid under the surface: each row's body colour, its back the thing's body colour
     # (outlined round its edge after, by outline())
     mids = {yy: (cnt.most_common(1)[0][0] if cnt and cnt.most_common(1)[0][1] > 0 else outline) for yy, cnt in by_height.items()}
@@ -389,11 +396,36 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     zmin = {}
     for (x, zz) in heights:
         zmin[x] = min(zmin.get(x, zz), zz)
+    filled = set()
     for (x, zz), h in heights.items():
         for yy in range(h):
             if (x, yy, zz) in placed or (x, yy, zz) in hollow:
                 continue
             placed[(x, yy, zz)] = body if zz == zmin[x] else mids.get(yy, outline)
+            filled.add((x, yy, zz))
+    # (its sides at each height the colour its front's edge is there, the first inside its
+    # outline from that side: a panel plain where the front's middle is a screen, a band
+    # running on round the corner where the front is banded)
+    edge = {}
+    for (x, yy), c in upright.items():
+        edge.setdefault(yy, []).append((x, c))
+    side = {}
+    for yy, row in edge.items():
+        row.sort()
+        light = [c for _, c in row if not _dark(c)]
+        if light:
+            side[yy] = (light[0], light[-1])
+    ends = {}
+    for (x, yy, zz) in placed:
+        lo, hi = ends.get((yy, zz), (x, x))
+        ends[(yy, zz)] = (min(lo, x), max(hi, x))
+    for (x, yy, zz) in filled:
+        if yy in side and zz != zmin[x]:
+            lo, hi = ends[(yy, zz)]
+            if x == lo:
+                placed[(x, yy, zz)] = side[yy][0]
+            elif x == hi:
+                placed[(x, yy, zz)] = side[yy][1]
     # (the solid's cubes the GBA's view shows after all, a sunk tray's back wall standing
     # where its last rows are drawn: the picture's colours there)
     cells = {(x,) + cell for (x, _), cell in shown.items()} | proud
@@ -426,6 +458,24 @@ def gba_view(cubes):
 def gba_shown(cubes):
     """The cubes the GBA's view shows a face of."""
     return set(gba_view(cubes).values())
+
+
+def paint_sides(grid, owner, colour, panel=None):
+    """A thing's left and right faces, as the GBA's view doesn't show them, one colour, and
+    `panel` (given) inset a cube from each face's edge: a cabinet's side panel."""
+    cubes = {k for k, o in grid.owner.items() if o == owner}
+    keep = gba_shown(cubes)
+    ends = {}
+    for (x, y, z) in cubes:
+        lo, hi = ends.get((y, z), (x, x))
+        ends[(y, z)] = (min(lo, x), max(hi, x))
+    for pick in (0, 1):
+        face = {(y, z): ends[(y, z)][pick] for (y, z) in ends}
+        for (y, z), x in face.items():
+            if (x, y, z) in keep:
+                continue
+            inner = all(face.get((y + dy, z + dz)) == x for dy, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            grid.set(x, y, z, panel if panel is not None and inner else colour, owner)
 
 
 def outline(grid, owner, colour, keep_shown=True, where=None):

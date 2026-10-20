@@ -353,3 +353,17 @@ def test_a_canopys_fronds_lie_level_each_pixel_where_its_drawn():
     # (both columns' fronds at height 0, their leaves hanging under them)
     assert {y for (x, v), (y, z) in cells.items() if kinds(x, v) == "back"} == {0}
     assert min(y for y, _ in cells.values()) < 0
+
+
+def test_a_things_sides_painted_plain_a_panel_inset():
+    s = _box_sprite()
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    g = voxel.Grid()
+    voxel.unproject_profile(g, s, own, voxel.box_kinds(lambda x, t, zf: 5, own), owner="thing-0")
+    was, _ = faithful(voxel.mesh_of(g, strip_v=16, strip_w=16), s)
+    SIDE, PANEL = (120, 120, 120), (180, 180, 170)
+    voxel.paint_sides(g, "thing-0", SIDE, PANEL)
+    score, _ = faithful(voxel.mesh_of(g, strip_v=16, strip_w=16), s)
+    assert score["exact"] == was["exact"]                         # (the GBA's view unchanged)
+    left = {(y, z): c for (x, y, z), c in g.cubes.items() if x == 2}
+    assert left[(2, 9)] == PANEL and left[(0, 9)] == SIDE         # (inset, its foot the frame)

@@ -1865,11 +1865,17 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                 grid.set(x, y + yb, z + yb, c, owner)
     # (every thing outlined from the sides and the back as the GBA outlines it from the
     # front: an escalator and what lies flat aside)
-    if outlines:
-        for k, o in enumerate(objs):
-            fix = fix_for(sprite, o, fixes, g)
-            if o["kind"] in ("flat", "escalator") or fix.get("shape") == "escalator" or not fix.get("outline", True):
-                continue
+    hex_ = lambda h: tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    for k, o in enumerate(objs):
+        fix = fix_for(sprite, o, fixes, g)
+        if o["kind"] in ("flat", "escalator") or fix.get("shape") == "escalator":
+            continue
+        if "sides" in fix:
+            # (its sides painted as the fix says: a cabinet's plain sides, a panel inset)
+            sides = fix["sides"]
+            voxel.paint_sides(grid, "thing-%d" % k, hex_(sides["colour"]),
+                              hex_(sides["panel"]) if "panel" in sides else None)
+        if outlines and fix.get("outline", True):
             voxel.outline(grid, "thing-%d" % k, voxel._darkest(sprite, o["own"]),
                           keep_shown=k not in turned, where=turned.get(k))
     return grid, objs
