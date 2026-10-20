@@ -105,7 +105,7 @@ def test_objects_are_split_for_the_kit():
 def test_room_cli_writes_everything():
     with tempfile.TemporaryDirectory() as d:
         draw_room(scale=3).save(os.path.join(d, "r.png"))
-        assert main(["room", os.path.join(d, "r.png"), "-o", os.path.join(d, "out"), "--views", "three-quarter"]) == 0
+        assert main(["room", os.path.join(d, "r.png"), "-o", os.path.join(d, "out"), "--views", "three-quarter", "--style", "faces"]) == 0
         for f in ("r.lgfr.json", "r.glb", "r.obj", "r.png", "r-labels.json", "r-labels.png", "r-faithful.png", "r-three-quarter.png"):
             assert os.path.exists(os.path.join(d, "out", f)), f
         things = sorted(os.listdir(os.path.join(d, "out", "r-things")))

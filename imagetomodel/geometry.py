@@ -45,7 +45,11 @@ class Mesh:
         colour = tuple(int(c) for c in colour[:3])
         if colour not in self.palette:
             self.palette.append(colour)
-        return (self.palette.index(colour) + 0.5, (self.strip_v or 0) + 0.5)
+        i = self.palette.index(colour)
+        w = self.strip_w or 256
+        # (row after row of the strip when there are more colours than it is wide: a
+        # voxel model's palette; patches are for meshes with few colours)
+        return (i % w + 0.5, (self.strip_v or 0) + i // w + 0.5)
 
     def face(self, points, uv=None, name=""):
         """A polygon. `uv` None: each corner wears where the GBA draws it (the faithful
@@ -82,9 +86,9 @@ def strip_pixels(mesh, width):
     """What the mesh paints in the strip under the sprite: {(x, y): (r, g, b)}, y from 0
     (the strip's first row), x across its width."""
     out = {}
+    w = getattr(mesh, "strip_w", None) or width
     for i, c in enumerate(getattr(mesh, "palette", []) or []):
-        if i < width:
-            out[(i, 0)] = c
+        out[(i % w, i // w)] = c
     for (x0, y0), rows in getattr(mesh, "patches", []) or []:
         for j, row in enumerate(rows):
             for i, c in enumerate(row):

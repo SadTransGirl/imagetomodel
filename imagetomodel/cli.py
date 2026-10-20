@@ -52,6 +52,7 @@ def main(argv=None):
     r.add_argument("--front-height", default="auto", help="how tall a free-standing thing's front is (pixels, unsquashed): 'auto' reads it from the art's shading (the darker band along its bottom)")
     r.add_argument("--low-height", type=float, default=8.0, help="how tall a thing of one tile is (pixels)")
     r.add_argument("--wall-thick", type=float, default=4.0, help="how thick the walls down the sides are (pixels)")
+    r.add_argument("--style", choices=("voxel", "faces"), default="voxel", help="voxel: a cube a pixel, as made in MagicaVoxel (with .vox files); faces: boxes with their sides painted, in relief")
     r.add_argument("--relief", type=int, default=3, help="how many pixels the lightest pixel of a thing's face stands out over the darkest, as voxel art (0: flat)")
     r.add_argument("--thick", type=float, default=2.0, help="how thick a cutout (a plant, a flower) is (pixels)")
     r.add_argument("--tops", choices=("painted", "picture"), default="painted", help="the top of a thing standing against the wall: painted from its art, or the picture the GBA draws there (the wall's band: exact from its angle)")
@@ -112,6 +113,8 @@ def room_main(a):
     info = room.label(sprite, g, spec)
     things = room.runs(info, g)
     front = "auto" if str(a.front_height) == "auto" else float(a.front_height)
+    if a.style == "voxel":
+        return room_voxel_main(a, sprite, name, spec, g, info, things, front)
     mesh = room.build(sprite, g, info, things, front_height=front, low_height=a.low_height,
                       wall_thick=a.wall_thick, spec=spec, tops=a.tops, levels=a.relief, thick=a.thick)
     objs = room.objects(info, g, things)
@@ -169,6 +172,68 @@ def room_main(a):
           % (score["exact"] * 100, score["covered"] * 100, score["extra"], score["colour_distance"]))
     print("labels: %s-labels.png (W wall, S side wall, T thing: h hanging, A against the wall, b a box, B a box standing tall, c a cutout); correct them with --spec" % name)
     print("%d things as models of their own in %s/thing-N/ (a .glb, .obj and model JSON each, their sides painted from their art)" % (made, things_dir))
+    return 0
+
+
+def room_voxel_main(a, sprite, name, spec, g, info, things, front):
+    """The room in true voxels: a .vox for MagicaVoxel, the port's model, a .glb and .obj
+    meshed from the cubes; and each thing the same, in a folder of its own."""
+    from . import room, voxel
+    grid, objs = room.build_voxels(sprite, g, info, things, front_height=front, low_height=a.low_height,
+                                   wall_thick=int(a.wall_thick), spec=spec, thick=int(a.thick))
+    os.makedirs(a.out, exist_ok=True)
+    stem = os.path.join(a.out, name)
+    with open(stem + "-labels.json", "w") as f:
+        json.dump({"grid": g, "wall_rows": info["wall_rows"], "wall_first": info["wall_first"], "labels": info["labels"],
+                   "things": things, "objects": [{k: v for k, v in o.items() if k not in ("own", "tiles")} for o in objs],
+                   "floor_colours": info["floor_colours"], "wall_colours": info["wall_colours"]}, f, indent=1)
+    room.labels_picture(sprite, g, info, things, scale=a.preview_scale).save(stem + "-labels.png")
+    voxel.write_vox(stem + ".vox", grid)
+    mesh = voxel.mesh_of(grid, strip_v=sprite.H, strip_w=sprite.W)
+    whole = lgfr.model(mesh, sprite, "imagetomodel room %s" % name, paint_all=False)
+    whole["room"] = {"grid": g, "wall_rows": info["wall_rows"], "style": "voxel"}
+    lgfr.write(stem + ".lgfr.json", whole)
+    gltf.write_glb(stem + ".glb", mesh, sprite, name=name, split=True)
+    gltf.write_obj(stem + ".obj", mesh, sprite, name=name, split=True)
+    score, sheet = faithful(mesh, sprite)
+    sheet.resize((sheet.width * a.preview_scale, sheet.height * a.preview_scale), 0).save(stem + "-faithful.png")
+    for view in [v for v in a.views.split(",") if v]:
+        render(mesh, sprite.rgba, view, scale=a.preview_scale).save("%s-%s.png" % (stem, view))
+    # each thing on its own: its cubes moved to its tiles' corner
+    things_dir = stem + "-things"
+    os.makedirs(things_dir, exist_ok=True)
+    made = 0
+    for k, o in enumerate(objs):
+        owner = "thing-%d" % k
+        mine = grid.only(owner)
+        if not len(mine):
+            continue
+        (ta, tb), (ca, cb) = o["rows"], o["columns"]
+        bx, by = g["ox"] + ca * 16, g["oy"] + ta * 16
+        crop = sprite.crop(bx, by, (cb - ca + 1) * 16, (tb - ta + 1) * 16)
+        moved = mine.moved(-bx, 0, -by)
+        folder = os.path.join(things_dir, owner)
+        os.makedirs(folder, exist_ok=True)
+        ostem = os.path.join(folder, owner)
+        voxel.write_vox(ostem + ".vox", moved)
+        omesh = voxel.mesh_of(moved, strip_v=crop.H, strip_w=crop.W, name=owner)
+        model = lgfr.model(omesh, crop, "imagetomodel %s %s" % (name, owner), paint_all=False)
+        model["imagetomodel"].update({"tiles": [ca, ta, cb, tb], "bbox": o["bbox"], "kind": o["kind"], "cubes": len(moved)})
+        lgfr.write(ostem + ".lgfr.json", model)
+        gltf.write_glb(ostem + ".glb", omesh, crop, name=owner)
+        gltf.write_obj(ostem + ".obj", omesh, crop, name=owner)
+        render(omesh, crop.rgba, "three-quarter", scale=a.preview_scale).save(ostem + "-three-quarter.png")
+        render(omesh, crop.rgba, "back", scale=a.preview_scale).save(ostem + "-back.png")
+        made += 1
+    kinds = {}
+    for o in objs:
+        kinds[o["kind"]] = kinds.get(o["kind"], 0) + 1
+    print("%s: %dx%d (scale %d), grid at %d,%d: %d x %d tiles, the wall %d rows from row %d, things: %s; %d cubes, %d faces"
+          % (name, sprite.W, sprite.H, sprite.scale, g["ox"], g["oy"], g["cols"], g["rows"], info["wall_rows"], info["wall_first"],
+             ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), len(grid), len(mesh.polys)))
+    print("faithful: %.1f%% of the picture's pixels exact, %.1f%% covered, %d drawn past it, colour distance %.3f"
+          % (score["exact"] * 100, score["covered"] * 100, score["extra"], score["colour_distance"]))
+    print("%s.vox for MagicaVoxel; %d things on their own in %s/thing-N/ (a .vox, .glb, .obj and the port's model each)" % (name, made, things_dir))
     return 0
 
 

@@ -47,6 +47,45 @@ front,back,top`) show the shape.
 imagetomodel room center-1f.png -o out
 ```
 
+### True voxels (the default)
+
+A room comes out as cubes, one a GBA pixel, as a room is made by hand in MagicaVoxel:
+`NAME.vox` for the whole room and `NAME-things/thing-N/thing-N.vox` for each thing, to open
+and work on in MagicaVoxel, with the port's model JSON, a `.glb` and an `.obj` meshed from
+the cubes beside each (faces merged where they're one colour, each wearing its colour from
+a palette painted in the canvas's strip).
+
+A sprite is unprojected, not extruded. The GBA draws a cube's front face on one row and
+its top face on the row above, so the bottom rows of each column of a thing are its front,
+standing, and the rows above them its top, lying back: a rounded corner, a rim, an
+outline come out as the art draws them, and the model seen from the GBA's angle gives the
+picture back but for the row along each front's top edge (a cube has one colour, and
+shows two rows there). How tall each front is comes from the art:
+
+- **in the room** (a counter, a table, a cushion): the rows from its foot up to where its
+  top's own colour takes over, so a counter is its darker edge and its kickplate;
+- **against the wall** (a shelf, a PC): it reaches back to the wall; its lid the rows
+  above the first dark line drawn right across it (the PC's grey cap, the shelf's green
+  top), else as deep as the wall is far;
+- **on a counter** (a machine whose foot is on the counter's back edge): standing on the
+  counter, the counter's height up, its lid as deep as the wall is far (the healing
+  machine's tray of balls lies on top);
+- **standing on its own** (a plant, a flower): its pixels standing, thickened backwards
+  (`--thick`) only as far as the GBA's view keeps.
+
+The sides and the back the GBA never drew take each row's body colour (the first colour
+inside its outline), the outline along the back edge. The back wall's face is the picture
+exactly, stepping forward a cube a column where the art cuts the corner, so its bands run
+round it; the floor is a layer of cubes under everything, the floor's own tile under each
+thing. Things are cut from their background pixel by pixel: on the wall's rows against
+the plain wall tile of the row most like theirs (the wall's scallops change from tile to
+tile), on a counter against its colour and its edges.
+
+`--style faces` builds the earlier way instead: boxes with their sides painted from the
+art and their faces in relief.
+
+### How a room is read
+
 A screenshot of a room (the GBA's own 240×160 frame, or art drawn its way, at any scale)
 is cut on its 16-pixel grid, wherever the grid lies on it (the screen scrolls with the
 player: the offset at which the most tiles repeat is the grid's). Each tile is told from
@@ -189,6 +228,7 @@ imagetomodel/render.py     pictures of the model (a small rasterizer), the faith
 imagetomodel/gltf.py       .glb and .obj in the kit's conventions
 imagetomodel/lgfr.py       the model JSON as LGFR3D keeps it
 imagetomodel/room.py       a room from a screenshot: the grid, each tile's label, the things, the mesh
+imagetomodel/voxel.py      cubes: a sprite unprojected, meshed greedily, written as MagicaVoxel .vox
 imagetomodel/cli.py        imagetomodel building ..., imagetomodel room ...
 tests/synthetic.py         a building drawn by hand, in the GBA's manner, for the tests
 tests/synthetic_room.py    a room, likewise
@@ -200,8 +240,9 @@ No Nintendo art is in this repository: the tests draw their own building.
 
 ## Next
 
-- rooms: a person standing in the screenshot (masked out), round things (a can, a pot)
-  turned round, plants puffed out, stairs as steps, water;
+- rooms: stairs as steps, a person standing in the screenshot (masked out), round things
+  (a can, a pot) turned round, what hangs on the wall standing a cube proud of it, water;
+- buildings in true voxels too;
 - more roof styles read from the art: a ridge with two slopes (a gable), the eave that
   curves down over the wall (a Center's, a Mart's), a flat roof with a rim;
 - things on the roof (a chimney, a skylight), porches set forward.
