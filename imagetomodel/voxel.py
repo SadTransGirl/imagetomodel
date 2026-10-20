@@ -432,7 +432,7 @@ def segments_kinds(segments, bottom):
 
 # --- a round thing: the sprite turned like a lathe ---
 
-def lathe(grid, sprite, own, y_base, z_axis, owner="", axis_x=None):
+def lathe(grid, sprite, own, y_base, z_axis, owner="", axis_x=None, depth=1.0):
     """A round thing (a plant, a flower, a pot): each row of its pixels a slice round a
     vertical axis at (axis_x, z_axis), each pixel as deep as the slice is round there (a
     circle through the row's outermost pixels), wearing its own colour through. Its bottom
@@ -480,6 +480,6 @@ def lathe(grid, sprite, own, y_base, z_axis, owner="", axis_x=None):
             if c is None:
                 continue
             dx = x - cx
-            t = (max(0.0, r * r - dx * dx)) ** 0.5
+            t = depth * (max(0.0, r * r - dx * dx)) ** 0.5     # (`depth`: how deep to how wide)
             for z in range(int(round(z_axis - t)), int(round(z_axis + t)) + 1):
                 grid.set(x, y, z, c, owner)

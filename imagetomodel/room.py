@@ -276,7 +276,7 @@ def label(sprite, g, spec=None):
     for k, h in hashes.items():
         if h and whole[h] >= 2 and floor_share[k] >= 0.95 and h not in floor_tiles:
             floor_tiles[h] = k
-    return {"labels": labels, "wall_first": first, "wall_rows": wall_rows,
+    return {"_oy": oy, "labels": labels, "wall_first": first, "wall_rows": wall_rows,
             "floor_colours": ["%02x%02x%02x" % c for c in sorted(floor_colours)],
             "wall_colours": ["%02x%02x%02x" % c for c in sorted(wall_colours)],
             "plain_wall": list(plain_wall) if plain_wall else None, "counts": counts, "forced": forced,
@@ -552,6 +552,8 @@ def _own_pixels(info, g, tx, ty, bands, kind):
                 continue
             if c == wall_pixel or (band is not None and c == band):
                 continue
+            if plain is not None and (x, y) in _decorations(info, g):
+                continue                              # (the wall's own decoration: a scallop)
             if match is not None and any(c == sprite.colour(ox + wx * PX + (x - x0), y) for wx in _wall_tiles(info, g, ty)):
                 continue                              # (the wall's own pattern there: its scallops)
             own.add((x, y))
@@ -588,7 +590,7 @@ def _wall_tiles(info, g, ty):
     if ty not in cache:
         sprite = info["sprite"]
         y0 = g["oy"] + ty * PX
-        cache[ty] = [cx for cx in range(g["cols"]) if info["labels"][ty][cx] == "wall"
+        cache[ty] = [cx for cx in range(1, g["cols"] - 1) if info["labels"][ty][cx] == "wall"
                      and float(sprite.drawn[y0:y0 + PX, g["ox"] + cx * PX:g["ox"] + cx * PX + PX].mean()) >= 0.99]
     return cache[ty]
 
@@ -616,7 +618,107 @@ def _wall_match(info, g, tx, ty):
     return best
 
 
-def _holes(info, own, bands):
+def _decorations(info, g):
+    """The wall's own decorations on its rows (a scallop): the pixels that aren't the plain
+    wall at their height, in small patches made only of the wall's own light colours (the
+    plain wall's and the room's corners', where the art draws them too), touching nothing
+    else that isn't the wall."""
+    if "_decor" in info:
+        return info["_decor"]
+    sprite = info["sprite"]
+    first = info["wall_first"]
+    made = info.get("made_up_wall", {})
+    y0 = g["oy"] + first * PX
+    y1 = g["oy"] + (first + info["wall_rows"]) * PX
+    palette = {c for row in made.values() for c in row if c is not None and not _dark(c)}
+    for cx in (g["ox"], g["ox"] + (g["cols"] - 1) * PX):
+        for y in range(y0, y1):
+            for x in range(cx, cx + PX):
+                c = sprite.colour(x, y)
+                if c is not None and not _dark(c):
+                    palette.add(c)
+    odd = set()
+    for y in range(y0, y1):
+        plain = made.get((y - g["oy"]) // PX)
+        for x in range(g["ox"] + PX, g["ox"] + (g["cols"] - 1) * PX):
+            c = sprite.colour(x, y)
+            if c is not None and plain and c != plain[(y - g["oy"]) % PX]:
+                odd.add((x, y))
+    walled = {p for p in odd if sprite.colour(*p) in palette}
+    decor = set()
+    left = set(walled)
+    while left:
+        start = left.pop()
+        patch = {start}
+        todo = [start]
+        while todo:
+            x, y = todo.pop()
+            for q in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if q in left:
+                    left.discard(q)
+                    patch.add(q)
+                    todo.append(q)
+        touches = any((x + dx, y + dy) in odd and (x + dx, y + dy) not in walled
+                      for (x, y) in patch for dx in (-1, 0, 1) for dy in (-1, 0, 1))
+        if len(patch) <= 40 and not touches:
+            decor |= patch
+    info["_decor"] = decor
+    return decor
+
+
+def _is_wall_pixel(info, g, x, y):
+    """Whether a pixel on the wall's rows is the wall's own: the plain wall's at its height,
+    or any plain wall tile's of its row at that spot (a scallop)."""
+    sprite = info["sprite"]
+    first = info["wall_first"]
+    wall_last = first + info["wall_rows"] - 1
+    ty = (y - g["oy"]) // PX
+    if not first <= ty <= wall_last:
+        return False
+    c = sprite.colour(x, y)
+    plain = info.get("made_up_wall", {}).get(ty)
+    j = (y - g["oy"]) % PX
+    return (bool(plain) and plain[j] == c) or (x, y) in _decorations(info, g)
+
+
+def _into_wall(info, g, own, reach=16):
+    """A thing's pixels on the wall's rows past its tiles: the drawn pixels touching it that
+    aren't the wall's own (a map's frame up into the row above, a plant's leaves), as far
+    as `reach` beyond what it had."""
+    sprite = info["sprite"]
+    first = info["wall_first"]
+    wall_top = g["oy"] + first * PX
+    wall_end = g["oy"] + (first + info["wall_rows"]) * PX
+    xs = [p[0] for p in own]
+    ys = [p[1] for p in own]
+    lo_x, hi_x, lo_y = min(xs) - reach, max(xs) + reach, min(ys) - reach
+    taken = info.setdefault("_taken", set()) - set(own)
+    out = set()
+    todo = list(own)
+    seen = set(own)
+    while todo:
+        x, y = todo.pop()
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                q = (x + dx, y + dy)
+                if q in seen:
+                    continue
+                seen.add(q)
+                qx, qy = q
+                if not (lo_x <= qx <= hi_x and max(lo_y, wall_top) <= qy < wall_end) or q in taken:
+                    continue
+                if not (g["ox"] + PX <= qx < g["ox"] + (g["cols"] - 1) * PX):
+                    continue                          # (not the room's corners: their art is the wall's)
+                c = sprite.colour(qx, qy)
+                if c is None or _is_wall_pixel(info, g, qx, qy):
+                    continue
+                out.add(q)
+                todo.append(q)
+    info["_taken"] |= out
+    return out
+
+
+def _holes(info, own, bands, keep=False):
     """The holes in a thing: drawn pixels with its own pixels to their left and right and
     above and below them (a dark line of a tray the wall's line matched, a slit the counter's
     edge matched, the counter seen through a machine's lip). Each with the colour it takes:
@@ -630,6 +732,7 @@ def _holes(info, own, bands):
     floor_colours = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in info["floor_colours"]}
     wall_colours = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in info["wall_colours"]}
     background = set(bands.values()) | wall_colours
+    top = min(rows)
     out = {}
     for y, xs in rows.items():
         lo, hi = min(xs), max(xs)
@@ -638,9 +741,10 @@ def _holes(info, own, bands):
                 continue
             c = sprite.colour(x, y)
             ys = cols[x]
-            if c is None or not min(ys) < y:
+            top_edge = y <= top + 1 and (x, y + 1) in own   # (a gap in its top edge, closed from below)
+            if c is None or not (min(ys) < y or top_edge):
                 continue                              # (the thing's own above it, and to its sides)
-            if c in background or _alike(c, floor_colours):
+            if not keep and (c in background or _alike(c, floor_colours)):
                 near = sorted((abs(xx - x), xx) for xx in xs if not _dark(sprite.colour(xx, y)))
                 c = sprite.colour(near[0][1], y) if near else c
             out[(x, y)] = c
@@ -777,6 +881,12 @@ def objects(info, g, things):
     for part in merged:
         for k in part:
             by_run[k]["kind"] = "free"
+    claimed = set()
+    for k in by_run:
+        t = things[k]
+        for ty in range(t["rows"][0], t["rows"][1] + 1):
+            claimed |= _own_pixels(info, g, t["x"], ty, bands, "thing")
+    info["_taken"] = claimed
     out = []
     for group in groups:
         first = dict(by_run[group[0]])
@@ -805,15 +915,18 @@ def objects(info, g, things):
             seen.add(p)
             todo += [(p[0] + dx, p[1] + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
         own |= back - seen
+        shadow = set()
         if first["cutout"] and own:
-            own = _main_pieces(own - _drop_shadow(sprite, own))
+            shadow = _drop_shadow(sprite, own)
+            own = _main_pieces(own - shadow)
             # (on to the tile below through its pixels that touch: a flower's pot reaching
             # down over the counter's next row)
             below = [(tx, b + 1) for tx in {t[0] for t in tiles} if b + 1 < len(info["labels"])]
             more = set()
             for btx, bty in below:
                 more |= _own_pixels(info, g, btx, bty, bands, "on-band" if first["kind"] == "on-band" else first["kind"])
-            more -= _drop_shadow(sprite, own | more)
+            shadow |= _drop_shadow(sprite, own | more)
+            more -= shadow
             grown = True
             while grown and more:
                 grown = False
@@ -823,11 +936,15 @@ def objects(info, g, things):
                         more.discard(p)
                         grown = True
         elif own:
-            own -= _drop_shadow(sprite, own)
+            shadow = _drop_shadow(sprite, own)
+            own -= shadow
+        art = set(own)                                # (as drawn: what its fingerprint is of)
+        if own and any(ty <= info["wall_first"] + info["wall_rows"] - 1 for _, ty in tiles) or \
+                (own and any(ty == info["wall_first"] + info["wall_rows"] for _, ty in tiles) and first["kind"] in ("against-wall", "on-wall")):
+            own |= _into_wall(info, g, own)
         fill = {}
-        art = set(own)
-        if own and not first["cutout"]:
-            fill = _holes(info, own, bands)
+        if own:
+            fill = _holes(info, own, bands, keep=first["cutout"])
             own |= set(fill)
         if not own:
             continue
@@ -847,7 +964,7 @@ def objects(info, g, things):
         at_edge = any(void_below(tx, ty) and _reaches(info, g, tx, ty, bands, "bottom") and runs_off(tx, ty) for tx, ty in tiles) \
             or any(info["floor_share"][(tx, ty)] < 0.99 and float(info["sprite"].drawn[g["oy"] + ty * PX:g["oy"] + ty * PX + PX, g["ox"] + tx * PX:g["ox"] + tx * PX + PX].mean()) < 0.9 for tx, ty in tiles)
         kind = "flat" if at_edge and first["kind"] == "free" else first["kind"]
-        out.append({"art": art, "fill": fill, "foot_on_band": first["foot_on_band"],
+        out.append({"art": art, "fill": fill, "shadow": shadow - own, "foot_on_band": first["foot_on_band"],
                     "kind": kind, "rows": [a, b], "columns": [min(by_run[k]["x"] for k in group), max(by_run[k]["x"] for k in group)],
                     "tiles": tiles, "own": own, "bbox": [min(xs), min(ys), max(xs) + 1, max(ys) + 1],
                     "cutout": first["cutout"], "under": first["under"], "runs": group})
@@ -1440,14 +1557,21 @@ def _lid_line(sprite, o):
     return None
 
 
-def fingerprint(sprite, o):
-    """An object's fingerprint: its own pixels and their colours, from its box's corner. The
-    same thing drawn in another room (every Pokemon Center's counter) has the same one."""
+def fingerprint(sprite, o, g=None):
+    """A thing's fingerprint: its tiles' pictures as drawn, from its first tile (as LGFR3D's
+    prints are a tile's picture), so it holds however its pixels are told from what's
+    behind them, and in every room drawn with the same tiles. `g`: the room's grid (its
+    offset on the picture); the grid at the picture's corner if not given."""
     import hashlib
-    pixels = o.get("art", o["own"])                    # (as drawn, before its holes are closed)
-    x0, y0 = min(p[0] for p in pixels), min(p[1] for p in pixels)
-    data = ";".join("%d,%d,%02x%02x%02x" % ((x - x0, y - y0) + tuple(sprite.colour(x, y))) for (x, y) in sorted(pixels))
-    return hashlib.sha1(data.encode()).hexdigest()[:12]
+    ox, oy = (g["ox"], g["oy"]) if g else (0, 0)
+    tiles = sorted(set(map(tuple, o["tiles"])))
+    tx0 = min(t[0] for t in tiles)
+    ty0 = min(t[1] for t in tiles)
+    h = hashlib.sha1()
+    for tx, ty in tiles:
+        h.update(b"%d,%d:" % (tx - tx0, ty - ty0))
+        h.update(sprite.rgba[oy + ty * PX:oy + ty * PX + PX, ox + tx * PX:ox + tx * PX + PX].tobytes())
+    return h.hexdigest()[:12]
 
 
 def load_fixes(paths=(), spec=None):
@@ -1467,11 +1591,11 @@ def load_fixes(paths=(), spec=None):
     return fixes
 
 
-def fix_for(sprite, o, fixes):
-    return fixes.get(fingerprint(sprite, o)) or fixes.get("%d,%d" % (o["columns"][0], o["rows"][0])) or {}
+def fix_for(sprite, o, fixes, g=None):
+    return fixes.get(fingerprint(sprite, o, g)) or fixes.get("%d,%d" % (o["columns"][0], o["rows"][0])) or {}
 
 
-def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4, spec=None, thick=2, fixes=None):
+def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4, spec=None, thick=2, fixes=None, round_depth=0.5):
     """The room as cubes (voxel.Grid), owned by "floor", "wall", "side-left", "side-right"
     and "thing-N" (N an index into objects()). See voxel.py for how a sprite is unprojected.
     `fixes` ({fingerprint or "tx,ty": fix}, see load_fixes) set a thing's shape by hand:
@@ -1494,9 +1618,11 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
     objs = objects(info, g, things)
     grid = voxel.Grid()
     covered = set()
+    shaded = set()                         # (a thing's drop shadow: on the wall, the thing casts it)
     for o in objs:
         if o["kind"] != "flat":
             covered |= o["own"]
+            shaded |= o.get("shadow", set())
 
     def wall_colour(r_rel):
         ty = first + r_rel // PX
@@ -1550,7 +1676,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
             r = z_face - y
             r_rel = r - d - wall_top
             c = sprite.colour(x, r) if 0 <= r < sprite.H else None
-            if c is None or (x, r) in covered:
+            if c is None or (x, r) in covered or (x, r) in shaded:
                 c = wall_colour(r_rel)
             for k in range(int(wall_thick)):
                 grid.set(x, y, z_face - k, c if k == 0 or y == wall_h - 1 else wall_colour(r_rel), "wall")
@@ -1634,7 +1760,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
     under_cubes = {}                                    # (counter: the pixels something stands on)
     for k in order:
         o = objs[k]
-        fix = fix_for(sprite, o, fixes)
+        fix = fix_for(sprite, o, fixes, g)
         kind = o["kind"]
         owner = "thing-%d" % k
         shape = fix.get("shape") or ("round" if o["cutout"] else "box")
@@ -1656,7 +1782,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
         u = under_object(o)
         yb = 0
         if u is not None:
-            yb = heights.get(u) or front_h(objs[u], fix_for(sprite, objs[u], fixes))
+            yb = heights.get(u) or front_h(objs[u], fix_for(sprite, objs[u], fixes, g))
         part = voxel.Grid()
         if shape == "escalator" or kind == "escalator":
             shape = "escalator"
@@ -1670,9 +1796,9 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                 xs = [x for x, _ in own_set]
                 bottom = [x for x, v in own_set if v >= foot - 2]
                 r_foot = (max(bottom) - min(bottom) + 1) / 2.0 if bottom else 2.0
-                r_all = (max(xs) - min(xs) + 1) / 2.0
-                z_axis = max(z_foot - 1 - r_foot, wall_z + r_all)
-                voxel.lathe(part, sprite, own_set, yb, z_axis, owner)
+                r_all = (max(xs) - min(xs) + 1) / 2.0 * float(fix.get("round_depth", round_depth))
+                z_axis = max(z_foot - 1 - r_foot * float(fix.get("round_depth", round_depth)), wall_z + r_all)
+                voxel.lathe(part, sprite, own_set, yb, z_axis, owner, depth=float(fix.get("round_depth", round_depth)))
             if u is not None:
                 under_cubes.setdefault(u, set()).update(own_set)
         else:
@@ -1781,7 +1907,7 @@ def escalators(info, g, objs):
         tiles = [t for k in part for t in objs[k]["tiles"]]
         xs = [p[0] for p in own]
         ys = [p[1] for p in own]
-        out.append({"art": own, "fill": {}, "foot_on_band": False, "kind": "escalator", "rows": [min(t[1] for t in tiles), max(t[1] for t in tiles)],
+        out.append({"art": own, "fill": {}, "shadow": set(), "foot_on_band": False, "kind": "escalator", "rows": [min(t[1] for t in tiles), max(t[1] for t in tiles)],
                     "columns": [min(t[0] for t in tiles), max(t[0] for t in tiles)], "tiles": tiles, "own": own,
                     "bbox": [min(xs), min(ys), max(xs) + 1, max(ys) + 1], "cutout": False, "under": None,
                     "runs": [r for k in part for r in objs[k]["runs"]]})

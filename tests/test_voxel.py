@@ -271,3 +271,18 @@ def test_holes_in_a_thing_are_closed():
     holes = room._holes(info, own, {})
     assert (7, 9) in holes and (5, 9) in holes and (7, 12) in holes
     assert (1, 9) not in holes
+
+
+def test_a_things_shadow_on_the_wall_is_not_painted_on_the_wall():
+    img = draw_room()
+    im = np.array(img)
+    for y in range(21, 57):
+        im[y, 78] = (123, 123, 123, 255)                # (right of the machine's outline)
+    s = Sprite(Image.fromarray(im, "RGBA"), scale=1)
+    room.mark_void(s)
+    g = room.grid(s)
+    info = room.label(s, g)
+    things = room.runs(info, g)
+    grid, objs = room.build_voxels(s, g, info, things)
+    wall = [c[:3] for (x, y, z), c in grid.cubes.items() if x == 78 and grid.owner[(x, y, z)] == "wall"]
+    assert wall and (123, 123, 123) not in wall

@@ -78,8 +78,11 @@ inside its outline), the outline along the back edge. The back wall's face is th
 exactly, stepping forward a cube a column where the art cuts the corner, so its bands run
 round it; the floor is a layer of cubes under everything, the floor's own tile under each
 thing. Things are cut from their background pixel by pixel: on the wall's rows against
-the plain wall tile of the row most like theirs (the wall's scallops change from tile to
-tile), on a counter against its colour and its edges.
+the plain wall at that height (or any plain wall tile, the room's corners aside), on a
+counter against its colour and its edges. The wall's own **decorations** (a scallop: a
+small patch of the wall's and the corners' colours, touching nothing else) stay the
+wall's, and what stands against the wall takes the pixels of its own that run on up into
+the wall's rows (the top of a map, a shelf's top edge).
 
 Some things are found and built their own way:
 
@@ -88,12 +91,13 @@ Some things are found and built their own way:
   column is drawn; what stands on it (a flower, a machine, a PC) is cut from its top,
   which wears its own colour there;
 - **round things** (a plant, a flower: a thing standing on its own on a background) are
-  turned like a lathe, each row a slice as round as the row is wide, the sprite's outline
-  left out of the turning;
+  turned like a lathe, each row a slice half as deep as the row is wide (`round_depth`
+  in a fix sets it; 1 is fully round), the sprite's outline left out of the turning;
 - **an escalator** (tiles drawn as treads, with the things touching them) is built as
   steps between two glass balustrades, a handrail along each, climbing where its handrails
   climb in the picture;
-- **the shadow** the GBA draws beside a thing on the floor is the floor's;
+- **the shadow** the GBA draws beside a thing on the floor is the floor's; where it falls
+  on the wall, the wall is built plain behind it (the thing, standing in 3D, casts it);
 - **holes** in a thing (a pixel with the thing to its left, its right and above it) are
   closed, wearing the thing's own colour where they showed the counter or the wall
   through it: a machine's tray is whole, its lip a panel;
@@ -104,13 +108,14 @@ Some things are found and built their own way:
 ### Fixes: things set by hand
 
 A sprite can't always say what stands and what lies: a machine can be a lip standing, a
-tray lying, a panel standing behind it. A **fix** says, by the thing's fingerprint (its
-own pixels and colours; each thing's is in `NAME-labels.json`), so it holds for that thing
-in every room drawn with it, as LGFR3D's own `building_fixes.json` does:
+tray lying, a panel standing behind it. A **fix** says, by the thing's fingerprint (a hash
+of its tiles' art as drawn, like LGFR3D's tile prints; each thing's is in
+`NAME-labels.json`), so it holds for that thing in every room drawn with it, as LGFR3D's
+own `building_fixes.json` does:
 
 ```json
 {
-  "503ff02e3064": {
+  "ffcd5c6f8280": {
     "name": "Pokemon Center healing machine",
     "profile": [["up", 5], ["back", 14], ["up", 6], ["back", "rest"]],
     "raise": {"colours": ["6bc66b"], "rows": [9, 22]}
@@ -126,7 +131,7 @@ in every room drawn with it, as LGFR3D's own `building_fixes.json` does:
 - `raise`: pixels of these colours (within rows) a cube proud (a tray's balls, keys);
 - `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far
   a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`;
-  `back_to_wall`.
+  `round_depth`: how deep a round thing is, against its width; `back_to_wall`.
 
 The library shipped with the tool (`imagetomodel/fixes/rooms.json`) has the Pokemon
 Center's shelf, PC, healing machine and nurse's PC; `--fixes FILE` adds more, and a spec's
