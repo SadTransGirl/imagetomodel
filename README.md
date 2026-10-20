@@ -139,7 +139,8 @@ own `building_fixes.json` does:
 - `raise`: pixels of these colours (within rows, and `cols`) a cube proud (a tray's balls,
   keys, a tab); one, or a list;
 - `sides`: `{"colour": "rrggbb", "panel": "rrggbb"}` its left and right faces one colour
-  (where its front is crossed by lines that would band them), a panel inset a cube;
+  (where its front is crossed by lines that would band them), a panel inset a cube; or a
+  `"left"` and a `"right"` each (a screen on the side the GBA never shows);
 - `keep`: the holes closed in it keep the picture's colours (a tab the counter's colour,
   which would otherwise be taken for the counter);
 - `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far

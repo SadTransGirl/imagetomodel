@@ -378,7 +378,8 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                 last = "back"
         # (reaching back to the wall past what's drawn: the top's body, outlined at the back)
         if back_of is not None and y > 0:
-            body = sprite.colour(x, top + 1) if (x, top + 1) in own else sprite.colour(x, top)
+            col = Counter(sprite.colour(x, v) for v in vs if not _dark(sprite.colour(x, v)))
+            body = col.most_common(1)[0][0] if col else sprite.colour(x, top)
             while z > back_of(x):
                 placed[(x, y - 1, z - 1)] = outline if z - 1 == back_of(x) else (body or outline)
                 heights[(x, z - 1)] = max(heights.get((x, z - 1), 0), y)
@@ -460,16 +461,17 @@ def gba_shown(cubes):
     return set(gba_view(cubes).values())
 
 
-def paint_sides(grid, owner, colour, panel=None):
-    """A thing's left and right faces, as the GBA's view doesn't show them, one colour, and
-    `panel` (given) inset a cube from each face's edge: a cabinet's side panel."""
+def paint_sides(grid, owner, colour, panel=None, which=(0, 1)):
+    """A thing's left and right faces (`which`: 0 its left, 1 its right), as the GBA's view
+    doesn't show them, one colour, and `panel` (given) inset a cube from each face's edge:
+    a cabinet's side panel, a screen."""
     cubes = {k for k, o in grid.owner.items() if o == owner}
     keep = gba_shown(cubes)
     ends = {}
     for (x, y, z) in cubes:
         lo, hi = ends.get((y, z), (x, x))
         ends[(y, z)] = (min(lo, x), max(hi, x))
-    for pick in (0, 1):
+    for pick in which:
         face = {(y, z): ends[(y, z)][pick] for (y, z) in ends}
         for (y, z), x in face.items():
             if (x, y, z) in keep:

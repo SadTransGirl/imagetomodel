@@ -1873,8 +1873,10 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
         if "sides" in fix:
             # (its sides painted as the fix says: a cabinet's plain sides, a panel inset)
             sides = fix["sides"]
-            voxel.paint_sides(grid, "thing-%d" % k, hex_(sides["colour"]),
-                              hex_(sides["panel"]) if "panel" in sides else None)
+            for which, side in (((0, 1), sides), ((0,), sides.get("left")), ((1,), sides.get("right"))):
+                if side and "colour" in side:
+                    voxel.paint_sides(grid, "thing-%d" % k, hex_(side["colour"]),
+                                      hex_(side["panel"]) if "panel" in side else None, which)
         if outlines and fix.get("outline", True):
             voxel.outline(grid, "thing-%d" % k, voxel._darkest(sprite, o["own"]),
                           keep_shown=k not in turned, where=turned.get(k))

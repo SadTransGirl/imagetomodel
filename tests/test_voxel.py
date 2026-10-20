@@ -367,3 +367,15 @@ def test_a_things_sides_painted_plain_a_panel_inset():
     assert score["exact"] == was["exact"]                         # (the GBA's view unchanged)
     left = {(y, z): c for (x, y, z), c in g.cubes.items() if x == 2}
     assert left[(2, 9)] == PANEL and left[(0, 9)] == SIDE         # (inset, its foot the frame)
+
+
+def test_one_side_painted_the_other_left():
+    s = _box_sprite()
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    g = voxel.Grid()
+    voxel.unproject_profile(g, s, own, voxel.box_kinds(lambda x, t, zf: 5, own), owner="thing-0")
+    right = {k: c for k, c in g.cubes.items() if k[0] == 13}
+    SCREEN = (82, 82, 107)
+    voxel.paint_sides(g, "thing-0", (180, 180, 170), SCREEN, which=(0,))
+    assert SCREEN in {c for k, c in g.cubes.items() if k[0] == 2}
+    assert all(g.cubes[k] == c for k, c in right.items())
