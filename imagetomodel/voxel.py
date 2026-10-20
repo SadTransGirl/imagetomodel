@@ -167,6 +167,20 @@ def unproject_box(grid, sprite, own, height_of, back_of=None, owner="", y_base=0
     return plan
 
 
+def billboard(grid, pixels, thick=3, owner="", y_base=0):
+    """A picture standing up facing the front, as the GBA's sprites are drawn (a tree, a
+    flower): `pixels` {(x, v): colour} (rows past the map's edge too), its lowest row
+    standing at height `y_base`, every pixel `thick` cubes deep, its picture where the GBA
+    draws it."""
+    if not pixels:
+        return
+    foot = max(v for _, v in pixels)
+    z = foot + y_base
+    for (x, v), c in pixels.items():
+        for k in range(thick):
+            grid.set(x, z - v, z - k, c, owner)
+
+
 def unproject_slab(grid, sprite, own, y_base, owner="", thick=2):
     """A thing standing on its own (a plant, a flower): each pixel a cube, its bottom row
     at height `y_base`, standing at z = foot + y_base; thickened backwards only as far as

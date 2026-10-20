@@ -50,6 +50,7 @@ class Decomp:
             self.heads[snake(m.group(1))] = (snake(t.group(1)) if t else None, snake(p.group(1)) if p else None)
         self.sets = {}
         self.cache = {}
+        self.bottoms = {}
 
     def map(self, name):
         data = json.load(open(os.path.join(self.root, "data/maps", name, "map.json")))
@@ -142,7 +143,13 @@ class Decomp:
         whole = layers[0].copy()
         whole.alpha_composite(layers[1])
         self.cache[key] = (whole, layers[1])
+        self.bottoms[key] = layers[0]
         return self.cache[key]
+
+    def bottom(self, m, mid):
+        """A metatile's bottom layer alone (the ground under what its top layer draws)."""
+        self.metatile(m, mid)
+        return self.bottoms[(m.primary, m.secondary, mid)]
 
     def draw(self, m):
         """The map as the GBA draws it: a metatile a 16-pixel cell, both its layers."""

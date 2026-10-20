@@ -101,37 +101,47 @@ class Town:
         m = self.map
         out = self._flowers()
         taken = set()
-        # (the pines: a tree from each body's left cell, its tip above and its foot below)
+        # (the pines: a tree from each body's left cell, its picture made from the tiles' own:
+        # its body, its tip above (a tip's top layer; a junction's pixels where a tip's top
+        # layer is; past the map's top edge, a tip's), its foot below (a foot's; a junction's
+        # but its tip; past the bottom edge, a foot's), less the grass round it)
         pine = lambda x, y, ids: 0 <= x < self.W and 0 <= y < self.H and m.grid[y][x] < 640 and m.grid[y][x] in ids
+        has_pines = any(pine(x, y, PINES) for y in range(self.H) for x in range(self.W))
+        grass = self.grass() if has_pines else set()
         for y in range(self.H):
             for x in range(self.W - 1):
                 if not (pine(x, y, PINE_BODIES) and m.grid[y][x] % 2 == 0 and pine(x + 1, y, PINE_BODIES)):
                     continue
-                pixels = set()
+                picture = {}
                 for i in (0, 1):
-                    pixels |= self._cell(x + i, y)
-                    if pine(x + i, y - 1, PINE_TIPS):
-                        pixels |= self._cell(x + i, y - 1)
-                    elif pine(x + i, y - 1, PINE_JUNCTIONS):
-                        pixels |= self._cell(x + i, y - 1, rows=range(8, PX))
+                    tip = np.asarray(self.decomp.metatile(m, 0x0E + i)[1])
+                    mask = tip[:, :, 3] > 0
+                    self._paint(picture, x + i, y, self.tile(x + i, y)[0], lambda a, b: True, grass)
+                    if pine(x + i, y - 1, PINE_TIPS | PINE_JUNCTIONS):
+                        self._paint(picture, x + i, y - 1, self.tile(x + i, y - 1)[0], lambda a, b: mask[b, a], grass)
+                    elif y - 1 < 0:
+                        self._paint(picture, x + i, y - 1, self.decomp.metatile(m, 0x0E + i)[1], lambda a, b: mask[b, a], grass)
                     if pine(x + i, y + 1, PINE_FEET):
-                        pixels |= self._cell(x + i, y + 1)
+                        self._paint(picture, x + i, y + 1, self.tile(x + i, y + 1)[0], lambda a, b: True, grass)
                     elif pine(x + i, y + 1, PINE_JUNCTIONS):
-                        pixels |= self._cell(x + i, y + 1, rows=range(0, 8))
-                out.append({"class": "tree", "tiles": [(x, y), (x + 1, y)], "pixels": pixels})
+                        self._paint(picture, x + i, y + 1, self.tile(x + i, y + 1)[0], lambda a, b: not mask[b, a], grass)
+                    elif y + 1 >= self.H:
+                        self._paint(picture, x + i, y + 1, self.decomp.metatile(m, 0x24 + i)[0], lambda a, b: True, grass)
+                out.append({"class": "tree", "tiles": [(x, y), (x + 1, y)], "picture": picture})
                 taken |= {(x, y), (x + 1, y)}
                 for i in (0, 1):
                     for j in (-1, 1):
-                        if pine(x + i, y + j, PINE_TIPS | PINE_FEET):
+                        if pine(x + i, y + j, PINE_TIPS | PINE_FEET | PINE_JUNCTIONS):
                             taken.add((x + i, y + j))
-                        elif pine(x + i, y + j, PINE_JUNCTIONS):
-                            taken.add((x + i, y + j))
-        # (a tip with no body in the map (its tree beyond its edge): a tree of its own)
+        # (a tip with no body in the map (its tree beyond its edge): its tip)
         for y in range(self.H):
             for x in range(self.W - 1):
                 if (x, y) not in taken and pine(x, y, PINE_TIPS) and m.grid[y][x] % 2 == 0:
-                    out.append({"class": "tree", "tiles": [(x, y), (x + 1, y)],
-                                "pixels": self._cell(x, y) | self._cell(x + 1, y)})
+                    picture = {}
+                    for i in (0, 1):
+                        mask = np.asarray(self.decomp.metatile(m, 0x0E + i)[1])[:, :, 3] > 0
+                        self._paint(picture, x + i, y, self.tile(x + i, y)[0], lambda a, b: mask[b, a], grass)
+                    out.append({"class": "tree", "tiles": [(x, y), (x + 1, y)], "picture": picture})
                     taken |= {(x, y), (x + 1, y)}
         # (the others: the cells of each kind of thing, together; a cell drawn hardly at all
         # but the ground (a grass patch's corner labelled with the house beside it) is ground)
@@ -165,9 +175,20 @@ class Town:
                 extra = {self.sprite.colour(tx * PX + i, ty * PX + j)[:3] for i in range(PX) for j in range(PX)
                          if i in (0, PX - 1) or j in (0, PX - 1)}
                 extra = {c for c in extra if not _petal(*(k / 255.0 for k in c))}
-            t["own"] = self._own(t.get("pixels") or self._cells(t["tiles"]), extra,
-                                 layers=t["class"] != "flower")
-            if t["class"] != "tree":
+            if "picture" in t:
+                # (a tree's own: its picture's pixels in the map)
+                t["own"] = {p for p in t["picture"] if 0 <= p[0] < self.W * PX and 0 <= p[1] < self.H * PX}
+            elif t["class"] == "flower":
+                # (a flower's own: where its tile differs from its bottom layer, the grass under
+                # it: its leaves too, the ground's greens as they are)
+                (tx, ty), = t["tiles"]
+                whole = np.asarray(self.tile(tx, ty)[0])[:, :, :3]
+                under = np.asarray(self.decomp.bottom(m, m.grid[ty][tx]))[:, :, :3]
+                t["own"] = {(tx * PX + i, ty * PX + j) for j in range(PX) for i in range(PX)
+                            if tuple(whole[j, i]) != tuple(under[j, i])}
+            else:
+                t["own"] = self._own(self._cells(t["tiles"]), extra, layers=t["class"] != "flower")
+            if t["class"] not in ("tree", "flower"):
                 # (the shadow the GBA draws beside it, a house's down a mailbox's cell, isn't it)
                 t["own"] = room._main_pieces(t["own"] - room._drop_shadow(self.sprite, t["own"]))
             xs = [x for x, _ in t["own"]] or [t["tiles"][0][0] * PX]
@@ -177,6 +198,21 @@ class Town:
             t["rows"] = [min(y for _, y in t["tiles"]), max(y for _, y in t["tiles"])]
             t["kind"] = "free"
         return [t for t in out if t["own"]]
+
+    def grass(self):
+        """The grass the pines stand in: the colours of a pine tip's bottom layer."""
+        b = np.asarray(self.decomp.bottom(self.map, 0x0E))
+        return {tuple(c) for c in b[:, :, :3].reshape(-1, 3).tolist()}
+
+    def _paint(self, picture, tx, ty, im, keep, grass):
+        """A tile's pixels (those `keep(i, j)` says, not the grass's) into a tree's picture at
+        the cell (tx, ty) (which may be past the map's edge)."""
+        a = np.asarray(im)
+        for j in range(PX):
+            for i in range(PX):
+                c = tuple(int(k) for k in a[j, i, :3])
+                if a[j, i, 3] > 0 and keep(i, j) and c not in grass:
+                    picture[(tx * PX + i, ty * PX + j)] = c
 
     def _cell(self, tx, ty, rows=range(PX)):
         """A cell's pixels (those rows of it)."""
@@ -284,7 +320,20 @@ def build_voxels(town, fixes=None, outlines=True):
     # the ground: each cell its picture, a thing's the ground most like what's round it
     counts = Counter(town.map.grid[y][x] for y in range(town.H) for x in range(town.W) if town.labels[y][x] == "ground")
 
+    trees = any(town.labels[y][x] == "tree" for y in range(town.H) for x in range(town.W))
+    tree_ground = town.decomp.bottom(town.map, 0x0E).load() if trees else None
+    g_colours = town.ground_colours()
+
     def under(x, y):
+        # (the ground the game draws under it: a tree's, the grass; a thing drawn on its
+        # tile's top layer (a flower), its tile's bottom layer; else the ground most like
+        # what's round it)
+        if town.labels[y][x] == "tree":
+            return tree_ground
+        b = np.asarray(town.decomp.bottom(town.map, town.map.grid[y][x]))
+        cs = [tuple(c) for c in b[:, :, :3].reshape(-1, 3).tolist()]
+        if (b[:, :, 3] > 0).all() and sum(1 for c in cs if c in g_colours) >= 0.9 * len(cs):
+            return town.decomp.bottom(town.map, town.map.grid[y][x]).load()
         near = Counter()
         for r in (1, 2, 3):
             for j in range(-r, r + 1):
@@ -315,9 +364,14 @@ def build_voxels(town, fixes=None, outlines=True):
         o = dict(t)
         own = (set(t["own"]) | room.fix_included(s, o, fix)) - room.fix_dropped(o, fix)
         o["own"] = own
-        shape = fix.get("shape") or ("round" if t["class"] in ("tree", "flower") else "box")
+        shape = fix.get("shape") or ("billboard" if t["class"] in ("tree", "flower") else "box")
         part = voxel.Grid()
-        if shape == "round":
+        if shape == "billboard":
+            # (a tree, a flower: its picture standing facing the front, as the GBA's sprites
+            # are, a few cubes thick)
+            pic = t.get("picture") or {p: s.colour(*p)[:3] for p in own}
+            voxel.billboard(part, pic, thick=int(fix.get("thick", 3 if t["class"] == "tree" else 2)), owner=owner)
+        elif shape == "round":
             rd = float(fix.get("round_depth", TREE_DEPTH if t["class"] == "tree" else 0.5))
             foot = max(v for _, v in own)
             xs = [x for x, _ in own]
