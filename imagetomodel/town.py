@@ -331,78 +331,46 @@ def square_walls(part, sprite, own, kinds, shown, owner):
                 part.set(x, y, z, c, owner)
 
 
-def hip_roof(part, sprite, own, kinds, shown, owner, spec):
-    """A hipped roof on a building's walls, built as a roof is, not as the GBA draws one:
-    four slopes rising `pitch` a cube (1, by default: a step up for each in) from eaves
-    overhanging the walls all round as far as the picture's roof does past them, to a
-    ridge along its length; the building made `depth` times as deep as its roof is drawn.
-    In the picture's colours: its shingles (the commonest colour of the front slope's
-    middle), a course's edge every few steps (its darker line, its lighter highlight under
-    it), its eaves trimmed and its ridge capped in the line's colour."""
-    front = [(x, y, z) for (x, v), (y, z) in shown.items() if kinds(x, v) == "up" and (x, v) in own]
-    roof_px = [(x, v) for (x, v) in own if kinds(x, v) != "up"]
-    if not front or not roof_px:
-        return
-    pitch = float(spec.get("pitch", 1.0))
-    h = max(y for _, y, _ in front) + 1                 # (its walls' height: the roof on them)
-    zf = max(z for _, _, z in front)
-    feet = [x for x, y, _ in front if y == 0]
-    wx0, wx1 = min(feet), max(feet)
-    rx0, rx1 = min(x for x, _ in roof_px), max(x for x, _ in roof_px)
-    over = max(1, min(wx0 - rx0, rx1 - wx1))
-    rows = len({v for _, v in roof_px})
-    zb = zf - int(round(rows * float(spec.get("depth", BUILDING_STRETCH)))) + 1
-    # (the walls as deep: their middle carried back (or cut) to the back; nothing past
-    # them under the roof's edge but the roof)
-    mid = (zf + min(z for _, _, z in part.cubes)) // 2
-    walls = {(x, y): c for (x, y, z), c in part.cubes.items() if z == mid and wx0 <= x <= wx1 and y < h}
-    for key in [k for k in part.cubes if k[2] < mid or not wx0 <= k[0] <= wx1 or k[1] >= h]:
-        del part.cubes[key]
-        part.owner.pop(key, None)
-    for z in range(zb, mid):
-        for (x, y), c in walls.items():
-            part.set(x, y, z, c, owner)
-    # (the front's top rows as they run across its middle: the picture's ends' slopes
-    # coming down past its eaves there (their stripes, their gutters) are the roof's)
-    roof_colours = {sprite.colour(*p)[:3] for p in roof_px}
-    cx = (wx0 + wx1) // 2
-    for (x, y, z), c in list(part.cubes.items()):
-        if c in roof_colours and z >= zf - 1 and y >= h - 8:
-            across = next((part.cubes[(cx, y, zz)] for zz in (z, zf, zf - 1) if (cx, y, zz) in part.cubes), None)
-            if across is not None:
-                part.cubes[(x, y, z)] = across
-    # (its colours, from the front slope's middle, past its ends' slopes)
-    hip = int(spec.get("hip", (rx1 - rx0) // 6))
-    middle = Counter(sprite.colour(x, v)[:3] for (x, v) in roof_px
-                     if rx0 + hip < x < rx1 - hip and not voxel._dark(sprite.colour(x, v)[:3]))
-    tones = [c for c, _ in middle.most_common(3)] or [Counter(sprite.colour(*p)[:3] for p in roof_px).most_common(1)[0][0]]
-    shingle = tones[0]
-    line = min(tones[1:] or tones, key=sum)
-    light = max(tones[1:] or tones, key=sum)
-    hexc = lambda c: tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
-    trim = hexc(spec["trim"]) if "trim" in spec else line
-    x0, x1, z0, z1 = rx0, rx1, zb - over, zf + over
-    level = lambda d: int(d * pitch + 1e-9)
-    top = level(min((x1 - x0) // 2, (z1 - z0) // 2))
-    course = max(2, int(round(top / 4.0)))              # (a course's edge every few steps)
-    for x in range(x0, x1 + 1):
-        for z in range(z0, z1 + 1):
-            d = min(x - x0, x1 - x, z - z0, z1 - z)     # (in from the nearest eave)
-            k = level(d)
-            first = d == 0 or level(d - 1) < k          # (the edge of its step)
-            last = level(d + 1) > k
-            if k == 0 and first:
-                c = trim
-            elif k == top:
-                c = line                                # (the ridge, capped)
-            elif k % course == 0 and first:
-                c = line
-            elif (k + 1) % course == 0 and last:
-                c = light
-            else:
-                c = shingle
-            for y in range(h, h + k + 1):
-                part.set(x, y, z, c if y == h + k else shingle, owner)
+def roof_drops(sprite, own, split, hip):
+    """How far a roof's ends come down, as the GBA draws them: {x: rows} for each column
+    within `hip` of either end, by how much lower its eave is drawn than the middle's (the
+    eave's rows (its gutter, its trim) found again down the column), so its ends' stripes
+    slope down to them as the picture's eave does."""
+    xs = [x for x, v in own if v == split]
+    if not xs:
+        return {}
+    x0, x1 = min(x for x, _ in own), max(x for x, _ in own)
+    cx = (min(xs) + max(xs)) // 2
+    eave = [sprite.colour(cx, split + i)[:3] for i in range(4)]
+    drops = {}
+    for x in list(range(x0, x0 + hip)) + list(range(x1 - hip + 1, x1 + 1)):
+        best, at = -1, 0
+        for k in range(hip):
+            same = sum(1 for i in range(4) if (x, split + k + i) in own and sprite.colour(x, split + k + i)[:3] == eave[i])
+            if same > best:
+                best, at = same, k
+        if best >= 2:
+            drops[x] = at
+    # (a column the eave isn't found down (its outline) as its nearest neighbour's)
+    for x in list(range(x0, x0 + hip)) + list(range(x1 - hip + 1, x1 + 1)):
+        if x not in drops and drops:
+            drops[x] = drops[min(drops, key=lambda q: abs(q - x))]
+    return drops
+
+
+def roof_ends(part, owner, drops):
+    """A roof's ends (their columns come down, so drawn less deep) carried back as deep as
+    its middle: each column's cubes at its back again behind it."""
+    zb = min(z for _, _, z in part.cubes)
+    for x in drops:
+        col = [(y, z, c) for (xx, y, z), c in part.cubes.items() if xx == x]
+        if not col:
+            continue
+        back = min(z for _, z, _ in col)
+        for y, z, c in col:
+            if z == back:
+                for zz in range(zb, back):
+                    part.set(x, y, zz, c, owner)
 
 
 def period(rows):
@@ -487,7 +455,7 @@ def wrap_sides(part, sprite, own, kinds, shown, inset):
     draws its front (its siding's stripes, its bricks' joints), but for its glass, its door
     and its outlines: each side's cubes at a height take its front's wall at that height,
     going on round from the corner; the back's, from its left. Not the cubes the GBA's view
-    shows."""
+    shows, nor its top (its roof)."""
     rows = {}
     for (x, v), (y, z) in shown.items():
         if kinds(x, v) == "up" and (x, v) not in inset:
@@ -530,8 +498,8 @@ def wrap_sides(part, sprite, own, kinds, shown, inset):
             seq[y] = seq[min(known, key=lambda k: abs(k - y))]
     for key in list(part.cubes):
         x, y, z = key
-        if key in keep or y not in seq:
-            continue
+        if key in keep or y not in seq or (x, y + 1, z) not in part.cubes:
+            continue                                    # (its top's a roof, not a wall)
         line = seq[y]
         lo, hi = ends[(y, z)]
         d = max(0, front[y] - z)
@@ -701,7 +669,14 @@ def build_voxels(town, fixes=None, outlines=True):
                 h = int(fix.get("front") or front_rows(s, o))
                 kinds = voxel.segments_kinds([["up", h], ["back", "rest"]], o["bbox"][3])
             building = t["class"] == "building"
-            hipped = building and isinstance(fix.get("roof"), dict) and fix["roof"].get("shape", "hip") == "hip"
+            hipped = building and isinstance(fix.get("roof"), dict) and "hip" in fix["roof"]
+            drops = {}
+            if hipped:
+                # (a hipped roof as the GBA draws it: lying on its walls as drawn, its ends'
+                # columns coming down as far as their eave is drawn lower, so they slope)
+                split = o["bbox"][3] - h
+                drops = roof_drops(s, own, split, int(fix["roof"]["hip"]))
+                kinds = (lambda split, drops: lambda x, v: "up" if v >= split + drops.get(x, 0) else "back")(split, drops)
             # (a building's rows lie as drawn; it's made deeper after, its roof's pattern carried
             # on (a hipped roof sets its own depth))
             stretch = float(fix.get("stretch", 1.0))
@@ -726,7 +701,7 @@ def build_voxels(town, fixes=None, outlines=True):
             if building:
                 square_walls(part, s, own, kinds, shown, owner)
             if hipped:
-                hip_roof(part, s, own, kinds, shown, owner, fix["roof"])
+                roof_ends(part, owner, drops)
             elif building:
                 deepen(part, s, own, kinds, owner, float(fix.get("deepen", BUILDING_STRETCH)))
             if building and fix.get("wrap", True):

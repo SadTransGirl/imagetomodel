@@ -316,13 +316,10 @@ walked through. Nothing of the game's is kept: it's read from your copy.
 - **a building** stands its front from its foot (a roof's edge past its walls an eave,
   standing on nothing), half as deep again as drawn, its roof's pattern carried back
   whole (its tiles, its courses repeated where its roof is plainest, so they stay square;
-  `deepen` in a fix, 1 for as drawn); a **hipped roof** (`"roof": {"hip": N}` in a fix:
-  the Pallet Town houses') is built as a roof is, not as the GBA draws one: four slopes at
-  `pitch` (1, 45 degrees) from eaves overhanging the walls all round as far as the
-  picture's roof does past them, up to a ridge, the house `depth` (1.5) times as deep as
-  its roof is drawn; in the picture's colours (its shingles, a course's line and
-  highlight every few steps, its eaves trimmed, its ridge capped; `trim` a colour for
-  another); its **windows** (their light blue glass) and its
+  `deepen` in a fix, 1 for as drawn); a **hipped roof** (`"roof": {"hip": N}` in a fix: the Pallet Town houses') lies on
+  its walls as drawn, as deep as its rows, its ends (N columns either side) coming down as
+  far as the picture draws their eave lower than its middle's, so they slope, their
+  stripes running front to back; its **windows** (their light blue glass) and its
   **door** (in the cell the map's warp is, what isn't its wall) set in a cube along the
   line of sight (`inset`: 0 for none), its picture where the GBA draws it; its walls a
   box (as wide as its front stands at its foot, back to its back), its front's wall
