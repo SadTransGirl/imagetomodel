@@ -313,9 +313,15 @@ walked through. Nothing of the game's is kept: it's read from your copy.
   (a billboard; `thick` in a fix, or `"shape": "round"` to turn it round);
 - **a fence** is a cell at a time, as the game draws it: the same post again; a fence, a
   sign and a mailbox stand facing the front too, three cubes thick;
-- **a building** stands its front from its foot (every column, a roof's edge past its
-  walls too), its roof half as deep again as drawn (the GBA draws a roof in fewer rows
-  than it's deep; `stretch` in a fix), its **windows** (their light blue glass) and its
+- **a building** stands its front from its foot (a roof's edge past its walls an eave,
+  standing on nothing), half as deep again as drawn, its roof's
+  pattern carried back whole (its tiles, its courses repeated where its roof is plainest,
+  so they stay square; `deepen` in a fix, 1 for as drawn); a **hipped roof** (`"roof":
+  {"hip": N}` in a fix: the Pallet Town houses') slopes at 45 degrees, as the GBA's view
+  looks down, so its front slope shows two rows a step (the darker of the two: a shingle
+  course's line is kept) and its back slope is hidden edge on, its ends rising over N
+  cubes, a column a stripe (cut back where the GBA's view would see them past its
+  picture); its **windows** (their light blue glass) and its
   **door** (in the cell the map's warp is, what isn't its wall) set in a cube along the
   line of sight (`inset`: 0 for none), its picture where the GBA draws it; its walls a
   box (as wide as its front stands at its foot, back to its back), its front's wall

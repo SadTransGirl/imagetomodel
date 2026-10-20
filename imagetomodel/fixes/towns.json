@@ -32,5 +32,11 @@
         ]
       }
     ]
+  },
+  "976041ae6af0": {
+    "name": "Pallet Town house",
+    "roof": {
+      "hip": 12
+    }
   }
 }

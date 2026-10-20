@@ -103,3 +103,23 @@ def test_the_same_thing_drawn_twice_is_one_model():
         a, b = grid.only("thing-0"), grid.only("thing-1")
         # (the same cubes, moved)
         assert {(x, y, z): c for (x, y, z), c in a.cubes.items()} == {(x - 48, y, z): c for (x, y, z), c in b.cubes.items()}
+
+
+def test_a_roofs_pattern_repeats_in_its_period():
+    tile = [[ROOF] * 6] * 3 + [[LINE] * 6]
+    rows = [[LINE] * 6] + tile * 5 + [[WALL] * 6]          # (rims either end)
+    assert town.period(rows) == 4
+    assert town.period([[c] * 6 for c in (ROOF, LINE, WALL, GRASS, ROOF, WALL, LINE, GRASS)]) is None
+
+
+def test_carving_takes_away_only_a_roofs_cubes_seen_past_its_picture():
+    part = voxel.Grid()
+    for y in range(4):
+        for z in range(4):
+            part.set(0, y, z, WALL, "t")                   # (a wall)
+            part.set(5, y, z, ROOF, "t")                   # (a roof's end)
+    roof = {k for k in part.cubes if k[0] == 5}
+    own = {(x, v) for x in range(1, 5) for v in range(-5, 4)}
+    town.carve(part, own, roof)
+    assert not any(k[0] == 5 for k in part.cubes) and not roof
+    assert len([k for k in part.cubes if k[0] == 0]) == 16

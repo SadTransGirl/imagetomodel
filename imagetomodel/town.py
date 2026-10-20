@@ -21,7 +21,7 @@ OBJECT_LABELS = {"building", "tree", "hedge", "fence", "sign", "prop"}
 BILLBOARDS = {"tree": 3, "flower": 2, "fence": 3, "sign": 3}   # (drawn face on: standing so, this thick)
 SINGLE_CELLS = {"fence"}         # (things the game draws a cell at a time, each a model reused)
 TREE_DEPTH = 0.4                 # (a tree as deep as wide, this much: round, but thin)
-BUILDING_STRETCH = 1.5           # (a building's roof deeper than the GBA draws it)
+BUILDING_STRETCH = 1.5           # (a flat-roofed building deeper than the GBA draws it)
 WATER_BEHAVIOURS = set(range(0x10, 0x1C))
 # (the outdoor set's pines, the even ones a tree's left half: a tree is its body's two cells,
 # the tip in the cell above (a tip's own, or a junction's lower half: the tree above's foot
@@ -287,7 +287,7 @@ def square_walls(part, sprite, own, kinds, shown, owner):
     """A building's walls a box: under its roof, as wide as its front stands at its foot,
     from its front back to its back (the roof's rounded corners as drawn don't round its
     walls)."""
-    base = [(x, y, z) for (x, v), (y, z) in shown.items() if kinds(x, v) == "up"]
+    base = [(x, y, z) for (x, v), (y, z) in shown.items() if kinds(x, v) == "up" and (x, v) in own]
     if not base:
         return
     height = max(y for _, y, _ in base) + 1
@@ -295,6 +295,15 @@ def square_walls(part, sprite, own, kinds, shown, owner):
     if not foot:
         return
     x0, x1 = min(foot), max(foot)
+    # (a roof's eave past its walls stands on nothing: what's under its lowest cube drawn,
+    # filled down to the ground, taken away)
+    low = {}
+    for (x, v), (y, _) in shown.items():
+        if (x, v) in own and not x0 <= x <= x1:
+            low[x] = min(low.get(x, y), y)
+    for key in [k for k in part.cubes if k[0] in low and k[1] < low[k[0]]]:
+        del part.cubes[key]
+        part.owner.pop(key, None)
     z_back = min(z for _, _, z in part.cubes)
     fronts = {}
     for x, y, z in base:
@@ -321,6 +330,147 @@ def square_walls(part, sprite, own, kinds, shown, owner):
                         c = min(near, key=lambda r: abs(r[0] - x))[1]
                 part.set(x, y, z, c, owner)
 
+
+def hip_roof(part, sprite, o, own, kinds, shown, owner, hip, others=()):
+    """A hipped roof on a building's walls, as the GBA draws one: its front slope (the
+    shingle courses), the stripes of its two ends' slopes either side, its ridge its top
+    row. The GBA looks down at 45 degrees, so a roof that slopes at 45 degrees shows its
+    front slope two rows a cube (a step's top, then its front) and hides its back slope
+    edge on: a roof of P rows rises P/2 cubes over P/2 and falls the same behind, P deep.
+    Its ends rise as high over `hip` cubes, a cube a column, so they show the stripes the
+    GBA draws down them. Each cube the GBA's view sees wears the pixel it shows there
+    (where one shows two rows, the upper's: a shingle line is a step's top); a cube seen
+    where the picture has none is taken away (the hips' back corners); the back slope is
+    the front's, mirrored."""
+    front = [(x, y, z) for (x, v), (y, z) in shown.items() if kinds(x, v) == "up"]
+    roof_px = [(x, v) for (x, v) in own if kinds(x, v) != "up"]
+    if not front or not roof_px:
+        return
+    h = max(y for _, y, _ in front) + 1                 # (its walls' height: the roof on them)
+    zf = max(z for _, _, z in front)
+    rx0, rx1 = min(x for x, _ in roof_px), max(x for x, _ in roof_px)
+    rise = max(1, len({v for _, v in roof_px}) // 2)
+    zb = zf - 2 * rise + 1
+    # (the walls as deep as the roof: cut or carried back to its back)
+    walls = {(x, y): c for (x, y, z), c in part.cubes.items() if z == zf - 2 * rise // 3}
+    for key in [k for k in part.cubes if k[2] < zb]:
+        del part.cubes[key]
+        part.owner.pop(key, None)
+    back = min(z for _, _, z in part.cubes)
+    for z in range(zb, back):
+        for (x, y), c in walls.items():
+            part.set(x, y, z, c, owner)
+    body = Counter(sprite.colour(*p)[:3] for p in roof_px).most_common(1)[0][0]
+    roof = set()
+    for x in range(rx0, rx1 + 1):
+        dx = min(x - rx0, rx1 - x)
+        for z in range(zb, zf + 1):
+            dz = min(zf - z, z - zb)
+            top = min(rise - 1, dz, (dx + 1) * rise // max(1, hip) - 1)
+            for y in range(h, h + top + 1):
+                roof.add((x, y, z))
+                part.set(x, y, z, body, owner)
+    carve(part, own, roof, others)
+    view = voxel.gba_view(set(part.cubes))
+    # (its picture where the GBA sees it; a cube seen on two rows (a step's top and its
+    # front) wears the darker, so a line drawn a pixel thin (a shingle course's edge, the
+    # ridge's outline) is kept, a pixel thicker)
+    painted = {}
+    for (x, v) in own:
+        key = view.get((x, v))
+        if key in roof and kinds(x, v) != "up":
+            c = sprite.colour(x, v)[:3]
+            if key not in painted or sum(c) < sum(painted[key]):
+                painted[key] = c
+    for key, c in painted.items():
+        part.cubes[key] = c
+    # (the rest, the back slope: the front's, mirrored about the ridge)
+    for (x, y, z) in roof:
+        if (x, y, z) in painted:
+            continue
+        twin = (x, y, zf + zb - z)
+        if twin in painted:
+            part.cubes[(x, y, z)] = painted[twin]
+
+
+def period(rows):
+    """The shortest run of rows a picture repeats in ([colour, ...] a row), judged on its
+    middle half (past its rims): a roof's tiles, a course of its shingles; None if it
+    doesn't (as near as its best)."""
+    n = len(rows)
+    mid = range(n // 4, n - n // 4)
+    score = {}
+    for p in range(2, n // 2 + 1):
+        pairs = [(rows[i], rows[i + p]) for i in mid if i + p < n]
+        total = sum(len(r) for r, _ in pairs)
+        if total:
+            score[p] = sum(sum(1 for a, b in zip(r, q) if a == b) for r, q in pairs) / float(total)
+    if not score:
+        return None
+    best = max(score.values())
+    if best < 0.75:
+        return None
+    return min(p for p, sc in score.items() if sc >= best - 0.02)
+
+
+def deepen(part, sprite, own, kinds, owner, factor):
+    """A building `factor` times as deep as the GBA draws it, its roof's pattern carried on
+    (whole tiles of it, so they stay square, where the stretch of a row at a time draws
+    every other row twice): where its roof is plainest, near its middle, as many layers as
+    its pattern repeats in, again and again, everything behind moved back."""
+    lying = [(x, v) for (x, v) in own if kinds(x, v) != "up"]
+    if not lying or factor <= 1:
+        return
+    x0, x1 = min(x for x, _ in lying), max(x for x, _ in lying)
+    v0, v1 = min(v for _, v in lying), max(v for _, v in lying)
+    rows = [[sprite.colour(x, v)[:3] if (x, v) in own else None for x in range(x0, x1 + 1)] for v in range(v0, v1 + 1)]
+    p = period(rows)
+    if not p:
+        return
+    extra = p * max(1, int(round((factor - 1) * len(rows) / float(p))))
+    tops = {}
+    for (x, y, z) in part.cubes:
+        tops[(x, z)] = max(tops.get((x, z), -1), y)
+    level = Counter(tops.values()).most_common(1)[0][0]
+    zs = sorted({z for _, z in tops})
+    plain = {z for z in zs if all(tops.get((x, z), -1) <= level for x in range(x0, x1 + 1))}
+    roof = [z for z in zs if sum(1 for x in range(x0, x1 + 1) if tops.get((x, z)) == level) > (x1 - x0) // 2]
+    if not roof:
+        return
+    mid = (roof[0] + roof[-1]) / 2.0
+    cuts = [z for z in roof if all(z + i in plain for i in range(p))]
+    if not cuts:
+        return
+    cut = min(cuts, key=lambda z: abs(z + p / 2.0 - mid))
+    # (behind the cut moved back; the layers in front of it, cut to cut + p, again behind it)
+    moved = {}
+    for (x, y, z), c in part.cubes.items():
+        if z < cut:
+            moved[(x, y, z - extra)] = c
+        else:
+            moved[(x, y, z)] = c
+            if z < cut + p:
+                for k in range(1, extra // p + 1):
+                    moved[(x, y, z - k * p)] = c
+    part.cubes = {}
+    part.owner = {}
+    for key, c in moved.items():
+        part.set(*key, c, owner)
+
+
+def carve(part, own, only, others=()):
+    """Take away the cubes of `only` (a roof's) the GBA's view would see where a thing's
+    picture has nothing (a hipped roof's back corners), until none shows there; not where
+    another thing's picture is (it may hide this one's)."""
+    while True:
+        view = voxel.gba_view(set(part.cubes))
+        stray = {k for p, k in view.items() if k in only and p not in own and p not in others}
+        if not stray:
+            return
+        for key in stray:
+            del part.cubes[key]
+            part.owner.pop(key, None)
+            only.discard(key)
 
 def outline_colour(sprite, own):
     """The colour a thing's picture is outlined in: the commonest dark colour where its own
@@ -515,6 +665,7 @@ def build_voxels(town, fixes=None, outlines=True):
                         grid.set(px, -1, py, c, "ground")
     # the things
     turned = {}
+    drawn = set().union(*(t["own"] for t in town.things)) if town.things else set()
     for k, t in enumerate(town.things):
         fix = fixes.get(fingerprint(town, t)) or {}
         owner = "thing-%d" % k
@@ -553,7 +704,10 @@ def build_voxels(town, fixes=None, outlines=True):
                 h = int(fix.get("front") or front_rows(s, o))
                 kinds = voxel.segments_kinds([["up", h], ["back", "rest"]], o["bbox"][3])
             building = t["class"] == "building"
-            stretch = float(fix.get("stretch", BUILDING_STRETCH if building else 1.0))
+            hipped = building and isinstance(fix.get("roof"), dict) and "hip" in fix["roof"]
+            # (a building's rows lie as drawn; it's made deeper after, its roof's pattern carried
+            # on (a hipped roof sets its own depth))
+            stretch = float(fix.get("stretch", 1.0))
             inset = openings(town, t, own, kinds, int(fix.get("inset", 1))) if building else None
             # (its parts, each a region built by a profile of its own (a chimney: a box on the
             # roof, the roof behind it still the roof), and the rest by the thing's)
@@ -574,6 +728,10 @@ def build_voxels(town, fixes=None, outlines=True):
                                                          foot=o["bbox"][3], inset=inset))
             if building:
                 square_walls(part, s, own, kinds, shown, owner)
+            if hipped:
+                hip_roof(part, s, o, own, kinds, shown, owner, int(fix["roof"]["hip"]), drawn - own)
+            elif building:
+                deepen(part, s, own, kinds, owner, float(fix.get("deepen", BUILDING_STRETCH)))
             if building and fix.get("wrap", True):
                 wrap_sides(part, s, own, kinds, shown, inset or {})
         for key, c in part.cubes.items():
