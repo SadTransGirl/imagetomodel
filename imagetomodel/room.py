@@ -1763,6 +1763,14 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                     and d.get("rows", [-10 ** 6, 10 ** 6])[0] <= p[1] - y0 <= d.get("rows", [-10 ** 6, 10 ** 6])[1]}
         return out
 
+    def included(o, fix):
+        x0, y0 = o["bbox"][0], o["bbox"][1]
+        out = set()
+        for d in fix.get("include", []):
+            out |= {(x0 + i, y0 + j) for j in range(d["rows"][0], d["rows"][1] + 1)
+                    for i in range(d["cols"][0], d["cols"][1] + 1) if sprite.colour(x0 + i, y0 + j) is not None}
+        return out
+
     standing_on = {u for u in (under_object(o) for o in objs) if u is not None}
     order = sorted(range(len(objs)), key=lambda k: (k in standing_on, objs[k]["kind"] == "free"))
     under_cubes = {}                                    # (counter: the pixels something stands on)
@@ -1787,7 +1795,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                 for j in range(1, d + 1):
                     grid.set(x, y + d, z_face + j, c, owner)
             continue
-        own_set = set(o["own"]) - dropped(o, fix)
+        own_set = (set(o["own"]) | included(o, fix)) - dropped(o, fix)
         u = under_object(o)
         yb = 0
         if u is not None:
@@ -1937,63 +1945,102 @@ def escalators(info, g, objs):
 
 
 def build_plant(grid, sprite, o, own, fix, owner, recess=None, raised=None):
-    """A potted plant (a palm), in three parts the fix names by rows and columns from the
-    thing's box's corner: its pot from the foot (the fix's "profile"; its "soil", a colour
-    over rows and columns, sunk by its "recess"), its trunk standing in the soil ("trunk":
-    its "cols" and "rows" as drawn, its "stripes" the rows its colours repeat up it), a
-    square column outlined at its corners, and its crown above ("crown": its "rows", its
-    "profile" and "profiles" as a thing's, up from its foot: fronds lying level, leaves
-    hanging; voxel.canopy) over the trunk. Each where the GBA draws it."""
+    """A potted plant, in parts the fix names by rows and columns from the thing's box's
+    corner, each where the GBA draws it:
+    - its pot from the foot, by the fix's "profile"; its "soil" (a colour, over "rows" and
+      "cols") sunk by its "recess"; "pot_depth": its top reaching back that far (a pot whose
+      top the leaves hide), a "rim" (a colour) round the soil;
+    - its trunk ("trunk": the "cols" and "rows" it's drawn in, its "stripes" the rows whose
+      colours repeat up it), a square column standing in the soil, outlined at its corners;
+    - its crown ("crown": its "rows", a "profile" and "profiles" up from its foot as a
+      thing's): the rows that lie fronds or leaves, level (voxel.canopy), over the trunk's
+      middle, or with no trunk on the pot; the rows that stand leaves hanging, tips curling,
+      or a flower's head, "thick" cubes deep; "mirror": its leaves in front of what stands
+      laid behind it too."""
     from . import voxel
     x0, y0 = o["bbox"][0], o["bbox"][1]
     rel = lambda p, r, c: r[0] <= p[1] - y0 <= r[1] and c[0] <= p[0] - x0 <= c[1]
     every = [-10 ** 6, 10 ** 6]
+    hex_ = lambda h: tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
     trunk = fix.get("trunk", {})
     t_rows, t_cols = trunk.get("rows", every), trunk.get("cols", every)
     crown = fix.get("crown", {})
     if isinstance(crown, list):
         crown = {"rows": crown}
     crown_px = {p for p in own if rel(p, crown.get("rows", every), every)}
-    trunk_px = {p for p in own if rel(p, t_rows, t_cols)} - crown_px
+    trunk_px = {p for p in own if "trunk" in fix and rel(p, t_rows, t_cols)} - crown_px
     soil = fix.get("soil")
-    soil_px = {p for p in own if soil and rel(p, soil["rows"], soil["cols"])} - crown_px
+    soil_px = {p for p in own if soil and "rows" in soil and rel(p, soil["rows"], soil["cols"])} - crown_px
     pot_px = (own - crown_px - trunk_px) | soil_px
-    colours = {}
-    if soil:
-        c = tuple(int(soil["colour"][i:i + 2], 16) for i in (0, 2, 4))
-        colours = {p: c for p in soil_px}
+    colours = {p: hex_(soil["colour"]) for p in soil_px}
+    # the pot
     kinds = voxel.segments_kinds(fix.get("profile", [["up", "rest"]]), o["bbox"][3])
-    shown = voxel.unproject_profile(grid, sprite, pot_px, kinds, owner=owner, recess=recess,
-                                    raised=raised, colours=colours)
+    foot = max(v for _, v in pot_px) if pot_px else o["bbox"][3] - 1
+    back_of = (lambda x, z=foot + 1 - int(fix["pot_depth"]): z) if "pot_depth" in fix else None
+    pot = voxel.Grid()
+    shown = voxel.unproject_profile(pot, sprite, pot_px, kinds, back_of=back_of, owner=owner,
+                                    recess=recess, raised=raised, colours=colours)
+    if "pot_depth" in fix and pot.cubes:
+        # (its top as the picture doesn't show it: the rim round it, the soil inside)
+        top = {}
+        for (x, y, z) in pot.cubes:
+            top[(x, z)] = max(top.get((x, z), -1), y)
+        seen = {(x,) + cell for (x, _), cell in shown.items()}      # (the picture's own)
+        rim = hex_(fix["rim"]) if "rim" in fix else None
+        dirt = hex_(soil["colour"]) if soil else None
+        for (x, z), y in top.items():
+            if (x, y, z) in seen:
+                continue
+            edge = any((x + dx, z + dz) not in top for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            c = rim if edge else dirt
+            if c is not None:
+                pot.cubes[(x, y, z)] = c
+    for key, c in pot.cubes.items():
+        grid.set(*key, c, owner)
     ground = [shown[p][0] + 1 for p in (soil_px or pot_px) if p in shown]
     y_soil = max(ground) if ground else 0
-    if not trunk_px:
-        return
-    # (the trunk: its foot where the picture draws it, in the soil; a square column)
-    tx0, tx1 = min(x for x, _ in trunk_px), max(x for x, _ in trunk_px)
-    w = tx1 - tx0 + 1
-    z_front = max(v for _, v in trunk_px) + y_soil
-    stripes = trunk.get("stripes", t_rows)
-    mid = (tx0 + tx1) // 2
-    cycle = [sprite.colour(mid, y0 + r) for r in range(stripes[0], stripes[1] + 1)]
-    cycle = [c for c in cycle if c is not None] or [voxel._darkest(sprite, trunk_px)]
-    dark = voxel._darkest(sprite, trunk_px)
-    # (the crown: its fronds level, over the trunk's middle, where the picture puts them)
-    z_axis = z_front - (w - 1) / 2.0
+    # the crown, its fronds level
     bottom = max(v for _, v in crown_px) + 1 if crown_px else y0
     kinds = voxel.segments_kinds(crown.get("profile", [["back", "rest"]]), bottom)
     if "profiles" in crown:
         kinds = voxel.columns_kinds(crown["profiles"], kinds, x0, bottom)
     cells = voxel.canopy(crown_px, kinds, bottom)
-    over = [z for (x, _), (y, z) in cells.items() if tx0 <= x <= tx1 and y == 0] or [z for _, z in cells.values()]
-    lift = int(math.floor(z_axis - sum(over) / float(len(over)) + 0.5)) if over else 0
-    frond = lift
+    if trunk_px:
+        tx0, tx1 = min(x for x, _ in trunk_px), max(x for x, _ in trunk_px)
+        w = tx1 - tx0 + 1
+        z_front = max(v for _, v in trunk_px) + y_soil
+        z_axis = z_front - (w - 1) / 2.0
+        over = [z for (x, _), (y, z) in cells.items() if tx0 <= x <= tx1 and y == 0] or [z for _, z in cells.values()]
+        lift = int(math.floor(z_axis - sum(over) / float(len(over)) + 0.5)) if over else 0
+    else:
+        lift = y_soil                                   # (its leaves lying on the pot)
+    thick = int(crown.get("thick", 1))
+    placed = {}
     for (x, v), (y, z) in cells.items():
         c = sprite.colour(x, v)
-        if c is not None:
-            grid.set(x, y + lift, z + lift, c, owner)
-    # (the trunk: from the soil up to the fronds, a square column outlined at its corners)
-    for y in range(y_soil, frond):
+        if c is None:
+            continue
+        standing = kinds(x, v) == "up"
+        for j in range(thick if standing else 1):
+            placed.setdefault((x, y + lift, z + lift - j), c)
+    if crown.get("mirror"):
+        stand = [z for (x, y, z) in placed if y > lift]
+        if stand:
+            mid = (min(stand) + max(stand)) / 2.0
+            for (x, y, z), c in list(placed.items()):
+                if y == lift and z > mid:
+                    placed.setdefault((x, y, int(round(2 * mid - z))), c)
+    for key, c in placed.items():
+        grid.set(*key, c, owner)
+    if not trunk_px:
+        return
+    # the trunk: from the soil up to the fronds, a square column outlined at its corners
+    stripes = trunk.get("stripes", t_rows)
+    mid = (tx0 + tx1) // 2
+    cycle = [sprite.colour(mid, y0 + r) for r in range(stripes[0], stripes[1] + 1)]
+    cycle = [c for c in cycle if c is not None] or [voxel._darkest(sprite, trunk_px)]
+    dark = voxel._darkest(sprite, trunk_px)
+    for y in range(y_soil, lift):
         c = cycle[(z_front - y - (y0 + stripes[0])) % len(cycle)]
         for x in range(tx0, tx1 + 1):
             for z in range(z_front - w + 1, z_front + 1):

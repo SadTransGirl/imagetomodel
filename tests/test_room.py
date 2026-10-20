@@ -125,3 +125,36 @@ def test_room_cli_writes_everything():
         assert painted >= 2
         lab = json.load(open(os.path.join(d, "out", "r-labels.json")))
         assert lab["wall_rows"] == 2
+
+
+def test_a_flower_in_a_pot_is_a_pot_leaves_and_a_head():
+    import numpy as np
+    from PIL import Image
+    from imagetomodel import voxel
+    HEAD, LEAF, POT, LINE = (80, 140, 200), (100, 200, 100), (170, 150, 70), (60, 60, 80)
+    im = np.zeros((16, 16, 4), dtype=np.uint8)
+    for y in range(1, 6):
+        for x in range(5, 11):
+            im[y, x] = (*HEAD, 255)                       # (its head, standing)
+    for y in range(6, 8):
+        for x in range(3, 13):
+            im[y, x] = (*LEAF, 255)                       # (its leaves, lying)
+    for y in range(8, 13):
+        for x in range(4, 12):
+            im[y, x] = (*(LINE if y == 12 else POT), 255)  # (its pot's front)
+    s = Sprite(Image.fromarray(im, "RGBA"), scale=1)
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    o = {"bbox": [3, 1, 13, 13]}
+    fix = {"shape": "plant", "crown": {"rows": [0, 6], "profile": [["back", 2], ["up", "rest"]], "thick": 3, "mirror": True},
+           "profile": [["up", 5], ["back", "rest"]], "pot_depth": 6, "rim": "d6c66b", "soil": {"colour": "52526b"}}
+    g = voxel.Grid()
+    room.build_plant(g, s, o, own, fix, "thing-0")
+    head = [k for k, c in g.cubes.items() if c == HEAD]
+    leaves = [k for k, c in g.cubes.items() if c == LEAF]
+    pot = [k for k, c in g.cubes.items() if c in (POT, LINE, (0xd6, 0xc6, 0x6b), (0x52, 0x52, 0x6b))]
+    assert len({z for _, _, z in head}) == 3                                      # (thick)
+    zs = {z for _, _, z in head}
+    assert any(z < min(zs) for _, _, z in leaves) and any(z > max(zs) for _, _, z in leaves)  # (round it)
+    assert max(z for _, _, z in pot) - min(z for _, _, z in pot) + 1 == 6        # (its pot square)
+    assert (0xd6, 0xc6, 0x6b) in g.cubes.values() and (0x52, 0x52, 0x6b) in g.cubes.values()
+    assert min(y for _, y, _ in head) > max(y for _, y, _ in pot)                # (over the pot)

@@ -1,5 +1,5 @@
 {
-  "_comment": "Things set by hand, by fingerprint (its tiles' pictures as drawn) (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows, and cols) a cube proud, one or a list; keep: closed holes keep the picture's colours (a tab the counter's colour); outline: false for none; drop: pixels that aren't the thing's; shape: box, round, slab, escalator, plant (a pot, a trunk and a crown: soil, trunk, crown; see room.build_plant); front: its front's rows; back_to_wall.",
+  "_comment": "Things set by hand, by fingerprint (its tiles' pictures as drawn) (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows, and cols) a cube proud, one or a list; keep: closed holes keep the picture's colours (a tab the counter's colour); outline: false for none; drop: pixels that aren't the thing's; include: pixels that are, its background's colour; shape: box, round, slab, escalator, plant (a pot, a trunk and a crown: soil, trunk, crown; see room.build_plant); front: its front's rows; back_to_wall.",
   "8e1a09fc8710": {
     "name": "Pokemon Center shelf",
     "profile": [
@@ -300,5 +300,161 @@
       }
     ],
     "back_to_wall": false
+  },
+  "fe499f58c635": {
+    "name": "Pokemon Center flower",
+    "shape": "plant",
+    "crown": {
+      "rows": [
+        0,
+        8
+      ],
+      "profile": [
+        [
+          "back",
+          2
+        ],
+        [
+          "up",
+          "rest"
+        ]
+      ],
+      "thick": 3,
+      "mirror": true
+    },
+    "profile": [
+      [
+        "up",
+        5
+      ],
+      [
+        "back",
+        "rest"
+      ]
+    ],
+    "pot_depth": 8,
+    "rim": "d6c66b",
+    "soil": {
+      "colour": "52526b"
+    },
+    "include": [
+      {
+        "rows": [
+          6,
+          6
+        ],
+        "cols": [
+          5,
+          6
+        ]
+      }
+    ],
+    "drop": [
+      {
+        "rows": [
+          14,
+          20
+        ]
+      },
+      {
+        "rows": [
+          9,
+          14
+        ],
+        "cols": [
+          0,
+          0
+        ]
+      },
+      {
+        "rows": [
+          9,
+          14
+        ],
+        "cols": [
+          11,
+          11
+        ]
+      }
+    ],
+    "outline": false
+  },
+  "ef9c863efd2e": {
+    "name": "Pokemon Center flower",
+    "shape": "plant",
+    "crown": {
+      "rows": [
+        0,
+        8
+      ],
+      "profile": [
+        [
+          "back",
+          2
+        ],
+        [
+          "up",
+          "rest"
+        ]
+      ],
+      "thick": 3,
+      "mirror": true
+    },
+    "profile": [
+      [
+        "up",
+        5
+      ],
+      [
+        "back",
+        "rest"
+      ]
+    ],
+    "pot_depth": 8,
+    "rim": "d6c66b",
+    "soil": {
+      "colour": "52526b"
+    },
+    "include": [
+      {
+        "rows": [
+          6,
+          6
+        ],
+        "cols": [
+          5,
+          6
+        ]
+      }
+    ],
+    "drop": [
+      {
+        "rows": [
+          14,
+          20
+        ]
+      },
+      {
+        "rows": [
+          9,
+          14
+        ],
+        "cols": [
+          0,
+          0
+        ]
+      },
+      {
+        "rows": [
+          9,
+          14
+        ],
+        "cols": [
+          11,
+          11
+        ]
+      }
+    ],
+    "outline": false
   }
 }

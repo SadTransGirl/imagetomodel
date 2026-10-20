@@ -151,6 +151,13 @@ its `crown` (`rows`, with a `profile` and `profiles` up from its foot as a thing
 rows that lie are fronds, every column moved along the line of sight till they're level
 over the trunk, the rows that stand leaves hanging from them or tips curling:
 
+A plant with no trunk (a flower) rests its crown on its pot: `"thick"` makes what stands
+in it (a flower's head) that many cubes deep, `"mirror"` lays its leaves in front of what
+stands behind it too; `pot_depth` gives a pot whose top the leaves hide a square top, its
+`rim` (a colour) round the `soil`'s colour. `include` adds pixels the background check took
+(a white stem on a counter with white in it); `"outline": false` leaves a thing to its
+picture's own outlines.
+
 ```json
 "crown": {"rows": [0, 14], "profile": [["up", 6], ["back", "rest"]],
           "profiles": [{"cols": [6, 9], "profile": [["up", 2], ["back", "rest"]]}]},
@@ -159,7 +166,7 @@ over the trunk, the rows that stand leaves hanging from them or tips curling:
 ```
 
 The library shipped with the tool (`imagetomodel/fixes/rooms.json`) has the Pokemon
-Center's shelf, PC, healing machine, nurse's PC and potted palm; `--fixes FILE` adds more, and a spec's
+Center's shelf, PC, healing machine, nurse's PC, potted palm and flowers; `--fixes FILE` adds more, and a spec's
 `"objects"` may key a fix by the thing's first tile (`"5,1"`) for one room.
 
 `--style faces` builds the earlier way instead: boxes with their sides painted from the
