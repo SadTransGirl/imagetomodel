@@ -74,11 +74,13 @@ def _vertices(mesh, sprite, split=False):
     return [(obj, groups[obj][0], groups[obj][1], groups[obj][3]) for obj in order]
 
 
-def write_glb(path, mesh, sprite, name="building", note=None, split=False, cut=None):
+def write_glb(path, mesh, sprite, name="building", note=None, split=False, cut=None, animation=None):
     """A .glb: one object wearing the kit's canvas (or, `split`, one per polygon name: the
     kit's import makes a model of each), drawn with no smoothing, both sides. The kit's
     import takes it back when `note` names its block ({"kind": "thing", "key": ID}), or by
-    its texture's top left matching the block's picture."""
+    its texture's top left matching the block's picture. `animation`: {"name", "length",
+    "keys": {object: [(seconds, 1 shown or 0 not), ...]}}, each object's scale stepped so
+    (a flipbook of frames; at rest each as its first key)."""
     blob = bytearray()
     views = []
 
@@ -113,6 +115,27 @@ def write_glb(path, mesh, sprite, name="building", note=None, split=False, cut=N
         meshes.append({"name": obj_name, "primitives": [{"attributes": {"POSITION": len(accessors) - 3, "TEXCOORD_0": len(accessors) - 2},
                                                           "indices": len(accessors) - 1, "material": 0}]})
         nodes.append({"name": obj_name, "mesh": len(meshes) - 1})
+    anims = []
+    if animation:
+        channels, samplers = [], []
+        for i, node in enumerate(nodes):
+            k = animation["keys"].get(node["name"])
+            if not k:
+                continue
+            if k[0][1] == 0.0:
+                node["scale"] = [0.0, 0.0, 0.0]
+            times = [t for t, _ in k]
+            tv = add_view(struct.pack("<%df" % len(times), *times))
+            vv = add_view(struct.pack("<%df" % (3 * len(k)), *[v for _, s in k for v in (s, s, s)]))
+            accessors += [
+                {"bufferView": tv, "componentType": 5126, "count": len(times), "type": "SCALAR",
+                 "min": [min(times)], "max": [max(times)]},
+                {"bufferView": vv, "componentType": 5126, "count": len(k), "type": "VEC3"},
+            ]
+            samplers.append({"input": len(accessors) - 2, "output": len(accessors) - 1, "interpolation": "STEP"})
+            channels.append({"sampler": len(samplers) - 1, "target": {"node": i, "path": "scale"}})
+        anims.append({"name": animation["name"], "channels": channels, "samplers": samplers,
+                      "extras": {"length": animation["length"]}})
     buf = io.BytesIO()
     kit_canvas(sprite, cut, strip_pixels(mesh, sprite.W)).save(buf, "PNG")
     img_view = add_view(buf.getvalue())
@@ -130,6 +153,8 @@ def write_glb(path, mesh, sprite, name="building", note=None, split=False, cut=N
            "textures": [{"source": 0, "sampler": 0}],
            "samplers": [{"magFilter": 9728, "minFilter": 9728, "wrapS": 33071, "wrapT": 33071}],
            "images": [{"name": tex_name, "mimeType": "image/png", "bufferView": img_view}]}
+    if anims:
+        doc["animations"] = anims
     js = json.dumps(doc, separators=(",", ":")).encode()
     while len(js) % 4:
         js += b" "

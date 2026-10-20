@@ -181,6 +181,26 @@ Center's counter, shelf, PC, healing machine, nurse's PC, potted palm, flowers a
 `--style faces` builds the earlier way instead: boxes with their sides painted from the
 art and their faces in relief.
 
+### Things that do something: animations
+
+A fix's `"animations"` say what a thing does, in frames of cubes built from its model;
+each is written beside it in its folder as `thing-N-NAME.gif` (to look at),
+`thing-N-NAME.vox` (MagicaVoxel's animation: a model a frame, shown in turn) and
+`thing-N-NAME.glb` (a node a frame, each shown in its turn by its scale, stepped: Godot
+imports it as an AnimationPlayer whose animation is NAME). The healing machine's, `heal`:
+Poke Balls set on its slots one by one (the patches of the slots' colour at the top of
+the tray, from the back row to the front, left to right), flashing while the jingle
+plays, then taken away:
+
+```json
+"animations": {"heal": {"slots": {"colour": "6bc66b"}, "balls": 6,
+                        "ball": ["f04030", "f8f8f8"], "glow": "fff8c8",
+                        "place": 0.4, "flashes": 6, "flash": 0.15, "hold": 0.6}}
+```
+
+(`balls`: how many, a party's; `ball`: its top's colour and its bottom's; `place`, `flash`,
+`hold`: seconds.)
+
 ### How a room is read
 
 A screenshot of a room (the GBA's own 240×160 frame, or art drawn its way, at any scale)
@@ -326,6 +346,7 @@ imagetomodel/gltf.py       .glb and .obj in the kit's conventions
 imagetomodel/lgfr.py       the model JSON as LGFR3D keeps it
 imagetomodel/room.py       a room from a screenshot: the grid, each tile's label, the things, the mesh
 imagetomodel/voxel.py      cubes: a sprite unprojected, meshed greedily, written as MagicaVoxel .vox
+imagetomodel/animate.py    what a thing does, in frames: a GIF, an animated .vox, a .glb animation
 imagetomodel/cli.py        imagetomodel building ..., imagetomodel room ...
 tests/synthetic.py         a building drawn by hand, in the GBA's manner, for the tests
 tests/synthetic_room.py    a room, likewise

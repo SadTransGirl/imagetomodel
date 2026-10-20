@@ -179,7 +179,7 @@ def room_main(a):
 def room_voxel_main(a, sprite, name, spec, g, info, things, front):
     """The room in true voxels: a .vox for MagicaVoxel, the port's model, a .glb and .obj
     meshed from the cubes; and each thing the same, in a folder of its own."""
-    from . import room, voxel
+    from . import animate, room, voxel
     fixes = room.load_fixes(a.fixes, spec)
     grid, objs = room.build_voxels(sprite, g, info, things, front_height=front, low_height=a.low_height,
                                    wall_thick=int(a.wall_thick), spec=spec, thick=int(a.thick), fixes=fixes)
@@ -214,6 +214,7 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
     things_dir = stem + "-things"
     os.makedirs(things_dir, exist_ok=True)
     made = 0
+    animated = []
     for k, o in enumerate(objs):
         owner = "thing-%d" % k
         mine = grid.only(owner)
@@ -236,6 +237,13 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
         render(omesh, crop.rgba, "three-quarter", scale=a.preview_scale).save(ostem + "-three-quarter.png")
         render(omesh, crop.rgba, "back", scale=a.preview_scale).save(ostem + "-back.png")
         made += 1
+        # (what it does: its fix's animations, each a GIF, an animated .vox and a .glb)
+        for anim, aspec in sorted(room.fix_for(sprite, o, fixes, g).get("animations", {}).items()):
+            frames = animate.frames_of(moved, anim, aspec)
+            animate.write_gif("%s-%s.gif" % (ostem, anim), frames, crop.rgba, scale=a.preview_scale * 2)
+            animate.write_vox_frames("%s-%s.vox" % (ostem, anim), frames)
+            animate.write_glb("%s-%s.glb" % (ostem, anim), frames, crop, name=anim)
+            animated.append("%s %s" % (owner, anim))
     kinds = {}
     for o in objs:
         kinds[o["kind"]] = kinds.get(o["kind"], 0) + 1
@@ -249,6 +257,8 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
     print("%s.vox for MagicaVoxel; %d things on their own in %s/thing-N/ (a .vox, .glb, .obj and the port's model each)" % (name, made, things_dir))
     if fixed:
         print("set by hand (fixes): %s" % ", ".join(fixed))
+    if animated:
+        print("animated (a GIF, .vox and .glb each, in its folder): %s" % ", ".join(animated))
     return 0
 
 

@@ -339,9 +339,11 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
         y, z = 0, zf
         last = None
         deep = 0.0
+        run = []                                       # (its last rows lying: its top)
         for v in range(zf - 1, top - 1, -1):
             c = ((colours or {}).get((x, v)) or sprite.colour(x, v)) if (x, v) in own else None
             kind = kind_of(x, v)
+            run = run + [c] if kind != "up" else []
             if kind == "up":
                 k = recess.get((x, v), 0)
                 cell = (y, z - 1 - k)
@@ -392,9 +394,10 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                             heights[(x, z - 1 - k)] = max(heights.get((x, z - 1 - k), 0), y + 1 - k)
                     heights[(x, z - 1 - k)] = max(heights.get((x, z - 1 - k), 0), y - k)
                     z -= 1
-        # (reaching back to the wall past what's drawn: the top's body, outlined at the back)
+        # (reaching back to the wall past what's drawn: the top's body (its last rows lying's
+        # commonest colour), outlined at the back)
         if back_of is not None and y > 0:
-            col = Counter(sprite.colour(x, v) for v in vs if not _dark(sprite.colour(x, v)))
+            col = Counter(c for c in run if c is not None and not _dark(c))
             body = col.most_common(1)[0][0] if col else sprite.colour(x, top)
             while z > back_of(x):
                 placed[(x, y - 1, z - 1)] = outline if z - 1 == back_of(x) else (body or outline)

@@ -1,5 +1,5 @@
 {
-  "_comment": "Things set by hand, by fingerprint (its tiles' pictures as drawn) (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows, and cols) a cube proud, one or a list; keep: closed holes keep the picture's colours (a tab the counter's colour); outline: false for none; round: its upright front corners rounded so many cubes round; square: its top as deep as it's wide (stretch: each row that lies that many cubes deep); sides: {colour, panel} its left and right faces one colour, a panel inset (or a \"left\" and a \"right\" each); drop: pixels that aren't the thing's; include: pixels that are, its background's colour; shape: box, round, slab, escalator, plant (a pot, a trunk and a crown: soil, trunk, crown; see room.build_plant); front: its front's rows; back_to_wall.",
+  "_comment": "Things set by hand, by fingerprint (its tiles' pictures as drawn) (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows, and cols) a cube proud, one or a list; keep: closed holes keep the picture's colours (a tab the counter's colour); outline: false for none; round: its upright front corners rounded so many cubes round; square: its top as deep as it's wide (stretch: each row that lies that many cubes deep); sides: {colour, panel} its left and right faces one colour, a panel inset (or a \"left\" and a \"right\" each); drop: pixels that aren't the thing's; include: pixels that are, its background's colour; animations: {name: {kind (heal), ...}} what it does, in frames (see animate.py); shape: box, round, slab, escalator, plant (a pot, a trunk and a crown: soil, trunk, crown; see room.build_plant); front: its front's rows; back_to_wall.",
   "8e1a09fc8710": {
     "name": "Pokemon Center shelf",
     "profile": [
@@ -196,7 +196,24 @@
         ]
       }
     ],
-    "keep": true
+    "keep": true,
+    "animations": {
+      "heal": {
+        "slots": {
+          "colour": "6bc66b"
+        },
+        "balls": 6,
+        "ball": [
+          "f04030",
+          "f8f8f8"
+        ],
+        "glow": "fff8c8",
+        "place": 0.4,
+        "flashes": 6,
+        "flash": 0.15,
+        "hold": 0.6
+      }
+    }
   },
   "7c9451470cee": {
     "name": "Pokemon Center nurse's PC",
