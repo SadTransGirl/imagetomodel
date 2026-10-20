@@ -17,6 +17,8 @@ from . import room, voxel
 from .picture import PX, Sprite
 
 OBJECT_LABELS = {"building", "tree", "hedge", "fence", "sign", "prop"}
+TREE_DEPTH = 0.4                 # (a tree as deep as wide, this much: round, but thin)
+BUILDING_STRETCH = 1.5           # (a building's roof deeper than the GBA draws it)
 WATER_BEHAVIOURS = set(range(0x10, 0x1C))
 # (the outdoor set's pines, the even ones a tree's left half: a tree is its body's two cells,
 # the tip in the cell above (a tip's own, or a junction's lower half: the tree above's foot
@@ -79,9 +81,25 @@ class Town:
         up = top[:, :, 3].reshape(-1).tolist()
         return sum(1 for c, t in zip(cs, up) if t > 0 or tuple(c) not in g) / 256.0
 
+    def _flowers(self):
+        """The flowers drawn on the ground (a bed of them): cells labelled ground with many
+        bright petals, each a thing standing up; found before the ground's colours are, so
+        the petals aren't taken for the ground's."""
+        out = []
+        for y in range(self.H):
+            for x in range(self.W):
+                if self.labels[y][x] != "ground":
+                    continue
+                px = np.asarray(self.tile(x, y)[0])[:, :, :3].reshape(-1, 3) / 255.0
+                petals = sum(1 for r, g, b in px.tolist() if _petal(r, g, b))
+                if petals >= 10:
+                    self.labels[y][x] = "flower"
+                    out.append({"class": "flower", "tiles": [(x, y)]})
+        return out
+
     def _things(self):
         m = self.map
-        out = []
+        out = self._flowers()
         taken = set()
         # (the pines: a tree from each body's left cell, its tip above and its foot below)
         pine = lambda x, y, ids: 0 <= x < self.W and 0 <= y < self.H and m.grid[y][x] < 640 and m.grid[y][x] in ids
@@ -140,7 +158,15 @@ class Town:
             seen |= group
             out.append({"class": c, "tiles": sorted(group)})
         for t in out:
-            t["own"] = self._own(t.get("pixels") or self._cells(t["tiles"]))
+            extra = set()
+            if t["class"] == "flower":
+                # (a flower's grass: the colours round its cell's edge, a shade of its own)
+                (tx, ty), = t["tiles"]
+                extra = {self.sprite.colour(tx * PX + i, ty * PX + j)[:3] for i in range(PX) for j in range(PX)
+                         if i in (0, PX - 1) or j in (0, PX - 1)}
+                extra = {c for c in extra if not _petal(*(k / 255.0 for k in c))}
+            t["own"] = self._own(t.get("pixels") or self._cells(t["tiles"]), extra,
+                                 layers=t["class"] != "flower")
             if t["class"] != "tree":
                 # (the shadow the GBA draws beside it, a house's down a mailbox's cell, isn't it)
                 t["own"] = room._main_pieces(t["own"] - room._drop_shadow(self.sprite, t["own"]))
@@ -162,15 +188,17 @@ class Town:
             out |= self._cell(tx, ty)
         return out
 
-    def _own(self, pixels):
+    def _own(self, pixels, extra=(), layers=True):
         """A thing's own pixels: its cells' pixels but the ground round it, reached from its
         outside through the ground's colours (a gap between two trees too; not a white wall
         that the sand's specks share, walled in by its outline), and never its top layer's."""
-        g = self.ground_colours()
+        g = self.ground_colours() | set(extra)
         s = self.sprite
         cells = {}
         for (x, y) in pixels:
-            cells[(x, y)] = self.tile(x // PX, y // PX)[1].getpixel((x % PX, y % PX))[3] > 0
+            # (a pixel on the top layer is the thing's, but for a flower's tile, the whole of
+            # it on its top layer, its grass too)
+            cells[(x, y)] = layers and self.tile(x // PX, y // PX)[1].getpixel((x % PX, y % PX))[3] > 0
         back = {p for p, up in cells.items() if not up and s.colour(*p)[:3] in g}
         todo = [p for p in back if any((p[0] + dx, p[1] + dy) not in cells for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))]
         seen = set()
@@ -209,8 +237,37 @@ def front_rows(sprite, o, gap=3):
     return max(1, y1 - end - 1)
 
 
+def openings(town, t, own, kinds, depth=1):
+    """A building's windows and doors, set in `depth` cubes: on its front (its rows that
+    stand), its glass (light blue), and in each door's cell (the map's warps) what isn't
+    its wall (its front's two commonest colours) or an outline."""
+    if depth <= 0:
+        return {}
+    s = town.sprite
+    front = {(x, v) for (x, v) in own if kinds(x, v) == "up"}
+    wall = {c for c, _ in Counter(s.colour(x, v)[:3] for (x, v) in front).most_common(2)}
+    doors = {(w["x"], w["y"]) for w in town.map.events.get("warp_events", [])} & set(map(tuple, t["tiles"]))
+    out = {}
+    for (x, v) in front:
+        c = s.colour(x, v)[:3]
+        door = (x // PX, v // PX) in doors and c not in wall and not voxel._dark(c)
+        if _is_glass(c) or door:
+            out[(x, v)] = depth
+    return out
+
+
 def fingerprint(town, t):
     return room.fingerprint(town.sprite, t)
+
+
+def _petal(r, g, b):
+    h, s, v = colorsys.rgb_to_hsv(r, g, b)
+    return s > 0.45 and v > 0.5 and (h < 0.12 or h > 0.88 or 0.12 <= h < 0.18)
+
+
+def _is_glass(c):
+    h, s, v = colorsys.rgb_to_hsv(*(k / 255.0 for k in c[:3]))
+    return 0.5 < h < 0.72 and s > 0.3 and v > 0.5
 
 
 def _is_water(c):
@@ -258,10 +315,10 @@ def build_voxels(town, fixes=None, outlines=True):
         o = dict(t)
         own = (set(t["own"]) | room.fix_included(s, o, fix)) - room.fix_dropped(o, fix)
         o["own"] = own
-        shape = fix.get("shape") or ("round" if t["class"] == "tree" else "box")
+        shape = fix.get("shape") or ("round" if t["class"] in ("tree", "flower") else "box")
         part = voxel.Grid()
         if shape == "round":
-            rd = float(fix.get("round_depth", 1.0 if t["class"] == "tree" else 0.5))
+            rd = float(fix.get("round_depth", TREE_DEPTH if t["class"] == "tree" else 0.5))
             foot = max(v for _, v in own)
             xs = [x for x, _ in own]
             bottom = [x for x, v in own if v >= foot - 2]
@@ -285,9 +342,12 @@ def build_voxels(town, fixes=None, outlines=True):
                 # each column's, so a roof's edge past its walls lies with the roof)
                 h = int(fix.get("front") or front_rows(s, o))
                 kinds = voxel.segments_kinds([["up", h], ["back", "rest"]], o["bbox"][3])
-            stretch = float(fix.get("stretch", 1.0))
+            building = t["class"] == "building"
+            stretch = float(fix.get("stretch", BUILDING_STRETCH if building else 1.0))
+            inset = openings(town, t, own, kinds, int(fix.get("inset", 1))) if building else None
             voxel.unproject_profile(part, s, own, kinds, owner=owner, recess=room.fix_recess(o, fix),
-                                    raised=room.fix_raised(s, o, fix), stretch=stretch, foot=o["bbox"][3])
+                                    raised=room.fix_raised(s, o, fix), stretch=stretch, foot=o["bbox"][3],
+                                    inset=inset)
         for key, c in part.cubes.items():
             grid.set(*key, c, owner)
     # every thing finished as a room's are: its corners, its sides, its outline

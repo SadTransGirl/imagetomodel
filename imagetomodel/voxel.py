@@ -367,7 +367,7 @@ def read_vox(path):
 
 # --- a profile: each row of a thing standing or lying ---
 
-def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None, stretch=1.0, foot=None):
+def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None, stretch=1.0, foot=None, inset=None):
     """A thing's cubes, row by row up each column from its foot: `kind_of(x, v)` says
     whether row v stands ("up": a cube on top of the last, its front face the pixel) or lies
     ("back": a cube behind the last, its top face the pixel). A box is its front rows up and
@@ -382,6 +382,8 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     `stretch`: how many cubes deep each row that lies is (at least 1; the GBA draws a top
     shorter than it's deep: a cushion's square top in fewer rows than it's wide), the rows
     past each moved back as far, so drawn a little higher than the GBA draws them.
+    `inset`: {(x, v): k} standing pixels set k cubes in along the line of sight (a window,
+    a door), their picture where the GBA draws it.
     `foot`: the row every column starts up from (the thing's foot), rows with nothing drawn
     in a column going by as the others' do: a roof's edge past its walls lies with the roof
     (else each column starts at its own lowest pixel).
@@ -412,6 +414,13 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                 cell = (y, z - 1 - k)
                 for j in range(k):
                     hollow.add((x, y, z - 1 - j))
+                d = min((inset or {}).get((x, v), 0), y)
+                if d:
+                    # (set in along the line of sight, its picture where the GBA draws it:
+                    # a window's glass, a door, behind the wall's face)
+                    cell = (y - d, z - 1 - d)
+                    for j in range(d):
+                        hollow.add((x, y - j, z - 1 - j))
                 if c is not None:
                     placed[(x,) + cell] = c
                     by_height.setdefault(y, Counter())[c] += 0 if _dark(c) else 1
@@ -420,7 +429,7 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                         placed[(x, y, z - k)] = c
                         proud.add((x, y, z - k))
                 shown[(x, v)] = cell
-                heights[(x, cell[1])] = max(heights.get((x, cell[1]), 0), y + 1)
+                heights[(x, cell[1])] = max(heights.get((x, cell[1]), 0), cell[0] + 1)
                 y += 1
                 last = "up"
             else:

@@ -69,8 +69,11 @@ def test_a_town_from_its_decompilation():
         grid = town.build_voxels(tw, fixes={})
         house = grid.only("thing-0")
         assert max(y for _, y, _ in house.cubes) == 15 and len(grid.only("ground")) == 96 * 96
+        # (its roof deeper than the GBA draws it (16 rows), so drawn a little higher)
+        zs = [z for _, _, z in house.cubes]
+        assert max(zs) - min(zs) + 1 >= 23
         score, _ = faithful(voxel.mesh_of(grid, strip_v=96, strip_w=96), tw.sprite)
-        assert score["exact"] > 0.97, score
+        assert score["exact"] > 0.95, score
 
 
 def test_a_town_wider_than_magicavoxel_holds_is_written_in_blocks():

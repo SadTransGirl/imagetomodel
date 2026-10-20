@@ -174,7 +174,7 @@ picture's own outlines.
 "soil": {"colour": "ad9442", "rows": [17, 21], "cols": [6, 9]}
 ```
 
-The library shipped with the tool (`imagetomodel/fixes/rooms.json`) has the Pokemon
+The library shipped with the tool (`imagetomodel/fixes/*.json`: rooms.json, towns.json) has the Pokemon
 Center's counter, shelf, PC, healing machine, nurse's PC, potted palm, flowers and cushions; `--fixes FILE` adds more, and a spec's
 `"objects"` may key a fix by the thing's first tile (`"5,1"`) for one room.
 
@@ -303,7 +303,16 @@ walked through. Nothing of the game's is kept: it's read from your copy.
   its upper half's colour); a fence or a sign stands face on, as thick as a post;
 - **the trees** of a border (the outdoor set's pines) are each a thing: its body's two
   cells, its tip in the cell above (a tip's own, or a junction's lower half, the tree
-  above's foot over it) and its foot in the cell below, turned round.
+  above's foot over it) and its foot in the cell below, turned round, four tenths as
+  deep as wide (`round_depth` in a fix);
+- **a building** stands its front from its foot (every column, a roof's edge past its
+  walls too), its roof half as deep again as drawn (the GBA draws a roof in fewer rows
+  than it's deep; `stretch` in a fix), its **windows** (their light blue glass) and its
+  **door** (in the cell the map's warp is, what isn't its wall) set in a cube along the
+  line of sight (`inset`: 0 for none), its picture where the GBA draws it; something on
+  its roof stands by its fix's `profiles` (Oak's lab's chimney, in `fixes/towns.json`);
+- **the flowers** drawn on the ground (a cell of ground with many bright petals) stand
+  up, each its own thing, turned round.
 
 It writes what a room does (NAME.png, the map as the GBA draws it; NAME.vox, in blocks of
 256 a side placed in MagicaVoxel's scene, a town being wider than a model can be;

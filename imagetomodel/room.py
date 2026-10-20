@@ -1576,13 +1576,14 @@ def fingerprint(sprite, o, g=None):
 
 
 def load_fixes(paths=(), spec=None):
-    """The fixes that apply: the library shipped with the tool (fixes/rooms.json), any files
+    """The fixes that apply: the library shipped with the tool (fixes/*.json), any files
     given, and the spec's "objects" ({fingerprint or "tx,ty": fix}), later ones winning."""
     import json
     import os
     fixes = {}
-    lib = os.path.join(os.path.dirname(__file__), "fixes", "rooms.json")
-    for path in [lib] + list(paths):
+    folder = os.path.join(os.path.dirname(__file__), "fixes")
+    libs = [os.path.join(folder, f) for f in sorted(os.listdir(folder)) if f.endswith(".json")]
+    for path in libs + list(paths):
         if path and os.path.exists(path):
             for key, fix in json.load(open(path)).items():
                 if not key.startswith("_"):
