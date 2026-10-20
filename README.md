@@ -303,12 +303,14 @@ walked through. Nothing of the game's is kept: it's read from your copy.
   from the ground round them and built as a room's are, by the same fixes, by the same
   fingerprints: a building's front is the rows under its roof (read from the top down,
   its upper half's colour); a fence or a sign stands face on, as thick as a post;
-- **the trees** of a border (the outdoor set's pines) are each a thing, its picture made
-  from the tiles' own: its body's two cells, its tip in the cell above (a tip's top layer,
-  or a junction's pixels where a tip's top layer is, the tree above's foot round it; past
-  the map's top edge, a tip's), its foot in the cell below; standing facing the front, as
-  the GBA's sprites are, three cubes thick (a billboard; `thick` in a fix, or `"shape":
+- **the trees** of a border (the outdoor set's pines) are one tree, the same model
+  wherever it stands, as the game draws the same tree again and again: its picture from
+  the pines' own tiles alone (a tip's top layer, a body, a foot, less the grass), not
+  from a row of them overlapping or the variants that end one; placed at each tree's body
+  (or below a tip whose body is past the map's edge), standing facing the front as the
+  GBA's sprites are, three cubes thick (a billboard; `thick` in a fix, or `"shape":
   "round"` to turn it round);
+- **a fence** is a cell at a time, as the game draws it: the same post again;
 - **a building** stands its front from its foot (every column, a roof's edge past its
   walls too), its roof half as deep again as drawn (the GBA draws a roof in fewer rows
   than it's deep; `stretch` in a fix), its **windows** (their light blue glass) and its
@@ -321,8 +323,12 @@ walked through. Nothing of the game's is kept: it's read from your copy.
 
 It writes what a room does (NAME.png, the map as the GBA draws it; NAME.vox, in blocks of
 256 a side placed in MagicaVoxel's scene, a town being wider than a model can be;
-NAME.lgfr.json, .glb, .obj, the faithfulness, the labels and each thing in
-NAME-things/thing-N/).
+NAME.lgfr.json, .glb, .obj, the faithfulness and the labels), but its things as **models
+made once**: the same thing drawn again (a pine, a house, a mailbox, a fence's post; by
+what it is and its picture from its own corner) is the same model, in
+NAME-models/MODEL/ (a .vox, .glb, the port's model), and NAME-placements.json says where
+each copy stands (its model, its corner in cubes, its cells): Pallet Town's 58 things are
+8 models.
 
 ## What's written
 

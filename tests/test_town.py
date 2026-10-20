@@ -14,7 +14,7 @@ from imagetomodel.render import faithful
 GRASS, WALL, ROOF, LINE = (100, 200, 100), (230, 230, 240), (230, 110, 90), (50, 50, 70)
 
 
-def _decomp(root):
+def _decomp(root, houses=(2,)):
     os.makedirs(os.path.join(root, "src/data/tilesets"))
     with open(os.path.join(root, "src/data/tilesets/headers.h"), "w") as f:
         for sym in ("General", "Test"):
@@ -41,9 +41,10 @@ def _decomp(root):
         open(os.path.join(d, "metatile_attributes.bin"), "wb").write(struct.pack("<3I", 0, 0, 0))
     os.makedirs(os.path.join(root, "data/layouts/Test"))
     cells = [[0] * 6 for _ in range(6)]
-    for x in (2, 3):
-        cells[2][x] = 2
-        cells[3][x] = 1
+    for h in houses:
+        for x in (h, h + 1):
+            cells[2][x] = 2
+            cells[3][x] = 1
     with open(os.path.join(root, "data/layouts/Test/map.bin"), "wb") as f:
         f.write(struct.pack("<36H", *[c | ((1 if c else 0) << 10) for row in cells for c in row]))
     json.dump({"layouts": [{"id": "LAYOUT_TEST", "width": 6, "height": 6, "primary_tileset": "gTileset_General",
@@ -89,3 +90,16 @@ def test_a_town_wider_than_magicavoxel_holds_is_written_in_blocks():
             tags.append(raw[off:off + 4])
             off += 12 + n + k
         assert tags.count(b"XYZI") == 2 and tags.count(b"nSHP") == 2
+
+
+def test_the_same_thing_drawn_twice_is_one_model():
+    with tempfile.TemporaryDirectory() as root:
+        _decomp(root, houses=(0, 3))
+        d = Decomp(root)
+        tw = town.Town(d, d.map("Test"), {"general:0x001": "building", "general:0x002": "building"})
+        assert len(tw.things) == 2
+        assert tw.things[0]["model"] == tw.things[1]["model"]
+        grid = town.build_voxels(tw, fixes={})
+        a, b = grid.only("thing-0"), grid.only("thing-1")
+        # (the same cubes, moved)
+        assert {(x, y, z): c for (x, y, z), c in a.cubes.items()} == {(x - 48, y, z): c for (x, y, z), c in b.cubes.items()}

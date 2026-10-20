@@ -295,7 +295,7 @@ def town_main(a):
     listed = []
     for k, t in enumerate(tw.things):
         fix = fixes.get(town.fingerprint(tw, t)) or {}
-        listed.append({"owner": "thing-%d" % k, "class": t["class"], "tiles": t["tiles"], "bbox": t["bbox"],
+        listed.append({"owner": "thing-%d" % k, "model": t["model"], "class": t["class"], "tiles": t["tiles"], "bbox": t["bbox"],
                        "fingerprint": town.fingerprint(tw, t), "fixed": fix.get("name", bool(fix))})
     with open(stem + "-labels.json", "w") as f:
         json.dump({"map": a.map, "size": [tw.W, tw.H], "labels": tw.labels, "objects": listed}, f, indent=1)
@@ -309,27 +309,46 @@ def town_main(a):
     sheet.save(stem + "-faithful.png")
     for view in [v for v in a.views.split(",") if v]:
         render(mesh, sprite.rgba, view, scale=a.preview_scale).save("%s-%s.png" % (stem, view))
-    things_dir = stem + "-things"
-    os.makedirs(things_dir, exist_ok=True)
+    # each model once (the same thing drawn again is the same model: a pine, a house, a
+    # mailbox), with where each copy stands
+    models_dir = stem + "-models"
+    os.makedirs(models_dir, exist_ok=True)
+    first = {}
     for k, t in enumerate(tw.things):
-        owner = "thing-%d" % k
-        mine = grid.only(owner)
+        inside = min(y for (x, y) in t["picture"]) >= 0 if "picture" in t else True
+        if t["model"] not in first or (inside and not first[t["model"]][1]):
+            first[t["model"]] = (k, inside)
+    placements = []
+    for k, t in enumerate(tw.things):
+        mine = grid.only("thing-%d" % k)
         if not len(mine):
             continue
-        (ca, cb), (ta, tb) = t["columns"], t["rows"]
+        (x0, y0, _), _ = mine.bounds()
+        placements.append({"model": t["model"], "owner": "thing-%d" % k, "class": t["class"],
+                           "at": [x0, y0, min(z for _, _, z in mine.cubes)], "tiles": t["tiles"]})
+    for key, (k, _) in sorted(first.items()):
+        mine = grid.only("thing-%d" % k)
+        if not len(mine):
+            continue
+        (x0, _, z0), (x1, _, z1) = mine.bounds()
+        ca, cb = max(0, x0 // 16), min(tw.W - 1, x1 // 16)
+        ta, tb = max(0, z0 // 16), min(tw.H - 1, z1 // 16)
         bx, by = ca * 16, ta * 16
         crop = sprite.crop(bx, by, (cb - ca + 1) * 16, (tb - ta + 1) * 16)
         moved = mine.moved(-bx, 0, -by)
-        folder = os.path.join(things_dir, owner)
+        folder = os.path.join(models_dir, key)
         os.makedirs(folder, exist_ok=True)
-        ostem = os.path.join(folder, owner)
+        ostem = os.path.join(folder, key)
         voxel.write_vox(ostem + ".vox", moved)
-        omesh = voxel.mesh_of(moved, strip_v=crop.H, strip_w=crop.W, name=owner)
-        model = lgfr.model(omesh, crop, "imagetomodel %s %s" % (name, owner), paint_all=False)
-        model["imagetomodel"].update({"tiles": [ca, ta, cb, tb], "bbox": t["bbox"], "class": t["class"], "cubes": len(moved)})
+        omesh = voxel.mesh_of(moved, strip_v=crop.H, strip_w=crop.W, name=key)
+        model = lgfr.model(omesh, crop, "imagetomodel %s %s" % (name, key), paint_all=False)
+        model["imagetomodel"].update({"model": key, "class": tw.things[k]["class"], "cubes": len(moved),
+                                      "copies": sum(1 for p in placements if p["model"] == key)})
         lgfr.write(ostem + ".lgfr.json", model)
-        gltf.write_glb(ostem + ".glb", omesh, crop, name=owner)
+        gltf.write_glb(ostem + ".glb", omesh, crop, name=key)
         render(omesh, crop.rgba, "three-quarter", scale=a.preview_scale * 2).save(ostem + "-three-quarter.png")
+    with open(stem + "-placements.json", "w") as f:
+        json.dump({"map": a.map, "models": sorted(first), "placements": placements}, f, indent=1)
     kinds = {}
     for t in tw.things:
         kinds[t["class"]] = kinds.get(t["class"], 0) + 1
@@ -337,6 +356,8 @@ def town_main(a):
           ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), len(grid), len(mesh.polys)))
     print("faithful: %.1f%% of the map's pixels exact, %.1f%% covered, colour distance %.3f"
           % (score["exact"] * 100, score["covered"] * 100, score["colour_distance"]))
+    print("%d models for %d things, each once in %s/MODEL/ (where each stands: %s-placements.json)"
+          % (len(first), len(placements), models_dir, name))
     fixed = [x["fixed"] for x in listed if isinstance(x["fixed"], str)]
     if fixed:
         print("set by hand (fixes): %s" % ", ".join(fixed))
