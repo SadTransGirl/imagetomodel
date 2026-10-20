@@ -1,5 +1,5 @@
 {
-  "_comment": "Things set by hand, by fingerprint (its tiles' pictures as drawn) (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows) a cube proud; drop: pixels that aren't the thing's; shape: box, round, slab, escalator; front: its front's rows; back_to_wall.",
+  "_comment": "Things set by hand, by fingerprint (its tiles' pictures as drawn) (imagetomodel room writes each thing's in NAME-labels.json). profile: [kind, rows] up from the thing's foot, kind up (standing) or back (lying), 'rest' the rows left; profiles: one per range of columns from its box's left edge; recess: rows and columns from its box's corner set 'depth' cubes in; raise: pixels of these colours (within rows, and cols) a cube proud, one or a list; keep: closed holes keep the picture's colours (a tab the counter's colour); outline: false for none; drop: pixels that aren't the thing's; shape: box, round, slab, escalator; front: its front's rows; back_to_wall.",
   "8e1a09fc8710": {
     "name": "Pokemon Center shelf",
     "profile": [
@@ -100,15 +100,72 @@
         "rest"
       ]
     ],
-    "raise": {
-      "colours": [
-        "6bc66b"
-      ],
-      "rows": [
-        9,
-        22
-      ]
-    }
+    "recess": [
+      {
+        "rows": [
+          9,
+          21
+        ],
+        "cols": [
+          8,
+          23
+        ],
+        "depth": 2
+      },
+      {
+        "rows": [
+          9,
+          21
+        ],
+        "cols": [
+          6,
+          7
+        ],
+        "depth": 1
+      },
+      {
+        "rows": [
+          9,
+          21
+        ],
+        "cols": [
+          24,
+          25
+        ],
+        "depth": 1
+      }
+    ],
+    "raise": [
+      {
+        "colours": [
+          "6bc66b"
+        ],
+        "rows": [
+          9,
+          22
+        ]
+      },
+      {
+        "colours": [
+          "ffffff"
+        ],
+        "rows": [
+          9,
+          22
+        ]
+      },
+      {
+        "colours": [
+          "ff8473",
+          "ce5242"
+        ],
+        "rows": [
+          23,
+          27
+        ]
+      }
+    ],
+    "keep": true
   },
   "7c9451470cee": {
     "name": "Pokemon Center nurse's PC",

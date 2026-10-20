@@ -1595,14 +1595,16 @@ def fix_for(sprite, o, fixes, g=None):
     return fixes.get(fingerprint(sprite, o, g)) or fixes.get("%d,%d" % (o["columns"][0], o["rows"][0])) or {}
 
 
-def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4, spec=None, thick=2, fixes=None, round_depth=0.5):
+def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4, spec=None, thick=2, fixes=None, round_depth=0.5, outlines=True):
     """The room as cubes (voxel.Grid), owned by "floor", "wall", "side-left", "side-right"
     and "thing-N" (N an index into objects()). See voxel.py for how a sprite is unprojected.
     `fixes` ({fingerprint or "tx,ty": fix}, see load_fixes) set a thing's shape by hand:
     "profile" ([["up", n], ["back", n], ..., [kind, "rest"]] up from its foot), "recess"
     ([{"rows": [a, b], "cols": [c, d], "depth": k}] from its box's corner), "raise"
-    ({"colours": ["rrggbb"]}), "shape" ("box", "round", "slab", "escalator"), "front" (rows),
-    "back_to_wall" (true or false)."""
+    ({"colours": ["rrggbb"]}, or a list), "shape" ("box", "round", "slab", "escalator"),
+    "front" (rows), "back_to_wall" (true or false), "keep" (closed holes keep the picture's
+    colours), "outline" (false: none). `outlines`: every thing outlined round its sides and
+    back (voxel.outline)."""
     from . import voxel
     spec = dict(spec or {})
     fixes = fixes if fixes is not None else load_fixes(spec=spec)
@@ -1741,11 +1743,16 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
         return out
 
     def raised_of(o, fix):
-        r = fix.get("raise") or {}
-        cols_ = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in r.get("colours", [])}
+        out = set()
         x0, y0 = o["bbox"][0], o["bbox"][1]
-        rows_ = r.get("rows", [-10 ** 6, 10 ** 6])
-        return {p for p in o["own"] if sprite.colour(*p) in cols_ and rows_[0] <= p[1] - y0 <= rows_[1]}
+        rs = fix.get("raise") or []
+        for r in ([rs] if isinstance(rs, dict) else rs):
+            cols_ = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in r.get("colours", [])}
+            rows_ = r.get("rows", [-10 ** 6, 10 ** 6])
+            span = r.get("cols", [-10 ** 6, 10 ** 6])
+            out |= {p for p in o["own"] if sprite.colour(*p) in cols_ and rows_[0] <= p[1] - y0 <= rows_[1]
+                    and span[0] <= p[0] - x0 <= span[1]}
+        return out
 
     def dropped(o, fix):
         x0, y0 = o["bbox"][0], o["bbox"][1]
@@ -1758,6 +1765,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
     standing_on = {u for u in (under_object(o) for o in objs) if u is not None}
     order = sorted(range(len(objs)), key=lambda k: (k in standing_on, objs[k]["kind"] == "free"))
     under_cubes = {}                                    # (counter: the pixels something stands on)
+    turned = {}                                         # (a round thing: where it's outlined)
     for k in order:
         o = objs[k]
         fix = fix_for(sprite, o, fixes, g)
@@ -1799,6 +1807,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                 r_all = (max(xs) - min(xs) + 1) / 2.0 * float(fix.get("round_depth", round_depth))
                 z_axis = max(z_foot - 1 - r_foot * float(fix.get("round_depth", round_depth)), wall_z + r_all)
                 voxel.lathe(part, sprite, own_set, yb, z_axis, owner, depth=float(fix.get("round_depth", round_depth)))
+                turned[k] = voxel.lathe_outlined(sprite, own_set, yb)
             if u is not None:
                 under_cubes.setdefault(u, set()).update(own_set)
         else:
@@ -1818,7 +1827,8 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
             to_wall = fix.get("back_to_wall", kind == "against-wall")
             back_of = (lambda x, yb=yb: wall_z - yb) if to_wall else None
             shown = voxel.unproject_profile(part, sprite, own_set, kinds, back_of=back_of, owner=owner,
-                                            recess=recess_of(o, fix), raised=raised_of(o, fix), colours=o.get("fill"))
+                                            recess=recess_of(o, fix), raised=raised_of(o, fix),
+                                            colours=None if fix.get("keep") else o.get("fill"))
             if u is not None:
                 under_cubes.setdefault(u, set()).update(shown)
             if k in paint:
@@ -1840,6 +1850,15 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                 grid.set(x, y, z, c, owner)
             else:
                 grid.set(x, y + yb, z + yb, c, owner)
+    # (every thing outlined from the sides and the back as the GBA outlines it from the
+    # front: an escalator and what lies flat aside)
+    if outlines:
+        for k, o in enumerate(objs):
+            fix = fix_for(sprite, o, fixes, g)
+            if o["kind"] in ("flat", "escalator") or fix.get("shape") == "escalator" or not fix.get("outline", True):
+                continue
+            voxel.outline(grid, "thing-%d" % k, voxel._darkest(sprite, o["own"]),
+                          keep_shown=k not in turned, where=turned.get(k))
     return grid, objs
 
 

@@ -328,6 +328,7 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     heights = {}                                       # (x, z) -> height of the solid there
     hollow = set()
     by_height = {}                                     # y -> Counter of standing colours
+    proud = set()                                      # (the raised cubes: the picture's too)
     for x, vs in cols.items():
         top, zf = vs[0], vs[-1] + 1
         y, z = 0, zf
@@ -345,6 +346,7 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                     by_height.setdefault(y, Counter())[c] += 0 if _dark(c) else 1
                     if (x, v) in raised:
                         placed[(x, y, z - k)] = c
+                        proud.add((x, y, z - k))
                 shown[(x, v)] = cell
                 heights[(x, cell[1])] = max(heights.get((x, cell[1]), 0), y + 1)
                 y += 1
@@ -353,14 +355,22 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                 if y == 0:
                     z -= 1                             # (lying on the floor: the floor's)
                     continue
-                cell = (y - 1, z - 1)
+                # (set k cubes down into it along the line of sight, a tray sunk in its
+                # rim: its picture where the GBA draws it, its floor run on forward under
+                # the gap to the rim)
+                k = min(recess.get((x, v), 0), y - 1)
+                cell = (y - 1 - k, z - 1 - k)
                 if c is not None and not (last == "up" and (x,) + cell in placed):
                     placed[(x,) + cell] = c
+                    for j in range(k):
+                        placed.setdefault((x, y - 1 - k, z - 1 - j), c)
                 if c is not None and (x, v) in raised:
-                    placed[(x, y, z - 1)] = c
-                    heights[(x, z - 1)] = max(heights.get((x, z - 1), 0), y + 1)
+                    placed[(x, y - k, z - 1 - k)] = c
+                    proud.add((x, y - k, z - 1 - k))
+                    heights[(x, z - 1 - k)] = max(heights.get((x, z - 1 - k), 0), y + 1 - k)
                 shown[(x, v)] = cell
-                heights[(x, z - 1)] = max(heights.get((x, z - 1), 0), y)
+                for j in range(k + 1):
+                    heights[(x, z - 1 - j)] = max(heights.get((x, z - 1 - j), 0), y - k)
                 z -= 1
                 last = "back"
         # (reaching back to the wall past what's drawn: the top's body, outlined at the back)
@@ -370,8 +380,11 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                 placed[(x, y - 1, z - 1)] = outline if z - 1 == back_of(x) else (body or outline)
                 heights[(x, z - 1)] = max(heights.get((x, z - 1), 0), y)
                 z -= 1
-    # the solid under the surface: each row's body colour, the outline at the back
+    # the solid under the surface: each row's body colour, its back the thing's body colour
+    # (outlined round its edge after, by outline())
     mids = {yy: (cnt.most_common(1)[0][0] if cnt and cnt.most_common(1)[0][1] > 0 else outline) for yy, cnt in by_height.items()}
+    every = sum(by_height.values(), Counter())
+    body = every.most_common(1)[0][0] if every else outline
     zmin = {}
     for (x, zz) in heights:
         zmin[x] = min(zmin.get(x, zz), zz)
@@ -379,10 +392,88 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
         for yy in range(h):
             if (x, yy, zz) in placed or (x, yy, zz) in hollow:
                 continue
-            placed[(x, yy, zz)] = outline if zz == zmin[x] else mids.get(yy, outline)
+            placed[(x, yy, zz)] = body if zz == zmin[x] else mids.get(yy, outline)
+    # (the solid's cubes the GBA's view shows after all, a sunk tray's back wall standing
+    # where its last rows are drawn: the picture's colours there)
+    cells = {(x,) + cell for (x, _), cell in shown.items()} | proud
+    for (x, r), key in gba_view(placed).items():
+        if key not in cells and (x, r) in own:
+            c = ((colours or {}).get((x, r)) or sprite.colour(x, r))
+            if c is not None:
+                placed[key] = c
     for (x, yy, zz), c in placed.items():
         grid.set(x, yy, zz, c, owner)
     return shown
+
+
+def gba_view(cubes):
+    """{pixel: cube} for the GBA's view: the cube whose face (a front on row z - y, a top
+    on the row above) is nearest the camera at each pixel."""
+    best = {}
+    for (x, y, z) in cubes:
+        faces = []
+        if (x, y, z + 1) not in cubes:
+            faces.append((x, z - y))
+        if (x, y + 1, z) not in cubes:
+            faces.append((x, z - y - 1))
+        for p in faces:
+            if p not in best or y + z > best[p][0]:
+                best[p] = (y + z, (x, y, z))
+    return {p: key for p, (_, key) in best.items()}
+
+
+def gba_shown(cubes):
+    """The cubes the GBA's view shows a face of."""
+    return set(gba_view(cubes).values())
+
+
+def outline(grid, owner, colour, keep_shown=True, where=None):
+    """A thing outlined as the GBA outlines a sprite, from the sides and the back too: the
+    cubes on the edge of its silhouette seen from the left, the right, the back and the
+    front (nearest that side each) wear its outline colour, but for the ones the GBA's view
+    shows, which keep the picture's (`keep_shown`; a round thing, turned from its picture
+    without its outline, is outlined all round). `where(key, (dx, dy))`: whether the
+    edge out that way (dx: left or right, dy: its top or foot) is drawn outlined there
+    (on a round thing, where the picture outlines it). Returns how many it coloured."""
+    cubes = {k for k, o in grid.owner.items() if o == owner}
+    if not cubes:
+        return 0
+    keep = gba_shown(cubes) if keep_shown else set()
+    edge = set()
+    # (each side: the plane it's seen on, the axis it looks along, which end is nearest,
+    # and which way out of its silhouette counts: from the left and the right only its top
+    # and its foot, its upright edges being the front's and the back's, which on a round
+    # thing are its sides, not its middle)
+    every = ((1, 0), (-1, 0), (0, 1), (0, -1))
+    for plane, along, near, ways in (((2, 1), 0, min, every[2:]), ((2, 1), 0, max, every[2:]),
+                                     ((0, 1), 2, min, every), ((0, 1), 2, max, every)):
+        nearest = {}
+        for key in cubes:
+            cell = (key[plane[0]], key[plane[1]])
+            if cell not in nearest or near(key[along], nearest[cell][along]) == key[along]:
+                nearest[cell] = key
+        # (its silhouette's outer edge: next to the outside, reached round it, not a gap
+        # inside it)
+        a_s = [a for a, _ in nearest]
+        b_s = [b for _, b in nearest]
+        lo_a, hi_a, lo_b, hi_b = min(a_s) - 1, max(a_s) + 1, min(b_s) - 1, max(b_s) + 1
+        outside = set()
+        todo = [(lo_a, lo_b)]
+        while todo:
+            q = todo.pop()
+            if q in outside or q in nearest or not (lo_a <= q[0] <= hi_a and lo_b <= q[1] <= hi_b):
+                continue
+            outside.add(q)
+            todo += [(q[0] + 1, q[1]), (q[0] - 1, q[1]), (q[0], q[1] + 1), (q[0], q[1] - 1)]
+        for (a, b), key in nearest.items():
+            out = [(da, db) for da, db in ways if (a + da, b + db) in outside]
+            if out and (where is None or any(where(key, (da if plane[0] == 0 else 0, db)) for da, db in out)):
+                edge.add(key)
+    n = 0
+    for key in edge - keep:
+        grid.set(*key, colour, owner)
+        n += 1
+    return n
 
 
 def box_kinds(height_of, own):
@@ -432,6 +523,38 @@ def segments_kinds(segments, bottom):
 
 # --- a round thing: the sprite turned like a lathe ---
 
+def _outline_like(c):
+    """A sprite's outline colour: dark, or a dark neutral grey."""
+    h, s, val = hsv(c)
+    return _dark(c) or (s < 0.12 and val < 0.6)
+
+
+def lathe_outlined(sprite, own, y_base):
+    """Where a round thing's picture outlines it, for outline(): a row whose end pixel is
+    an outline round its sides; its top (its foot) where the pixel above (below) is an
+    outline drawn across, not a row's end (the side of a pot under a wider head)."""
+    foot = max(v for _, v in own)
+    rows = {}
+    for (x, v) in own:
+        rows.setdefault(v, []).append(x)
+
+    def drawn(x, v):
+        c = sprite.colour(x, v)
+        return c is not None and _outline_like(c)
+
+    def where(key, way):
+        x, y, _ = key
+        v = foot - (y - y_base)
+        dx, dy = way
+        if dx:
+            xs = rows.get(v)
+            return bool(xs) and drawn(min(xs) if dx < 0 else max(xs), v)
+        n = v - 1 if dy > 0 else v + 1
+        xs = rows.get(n)
+        return (x, n) in own and drawn(x, n) and min(xs) < x < max(xs)
+    return where
+
+
 def lathe(grid, sprite, own, y_base, z_axis, owner="", axis_x=None, depth=1.0):
     """A round thing (a plant, a flower, a pot): each row of its pixels a slice round a
     vertical axis at (axis_x, z_axis), each pixel as deep as the slice is round there (a
@@ -445,9 +568,7 @@ def lathe(grid, sprite, own, y_base, z_axis, owner="", axis_x=None, depth=1.0):
     foot = max(v for _, v in own)
     # (the outline round the silhouette is the sprite's way of drawing an edge; turned, the
     # edge is the shape's own: left out where an inner colour is beside it)
-    def outline_like(c):
-        h, s, val = hsv(c)
-        return _dark(c) or (s < 0.12 and val < 0.6)
+    outline_like = _outline_like
     inner = set()
     for (x, v) in own:
         c = sprite.colour(x, v)

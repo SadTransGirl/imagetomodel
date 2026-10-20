@@ -74,7 +74,11 @@ shows two rows there). How tall each front is comes from the art:
   (`--thick`) only as far as the GBA's view keeps.
 
 The sides and the back the GBA never drew take each row's body colour (the first colour
-inside its outline), the outline along the back edge. The back wall's face is the picture
+inside its outline). Every thing is then **outlined** as the GBA outlines a sprite, from the
+sides and the back too: the cubes on the edge of its silhouette seen from the left, the
+right, the back and the front wear its outline colour, but for those the GBA's view shows,
+which keep the picture's. A round thing is outlined only where its picture is (a plant's
+leaves and pot, not a flower's petals); `"outline": false` in a fix turns it off. The back wall's face is the picture
 exactly, stepping forward a cube a column where the art cuts the corner, so its bands run
 round it; the floor is a layer of cubes under everything, the floor's own tile under each
 thing. Things are cut from their background pixel by pixel: on the wall's rows against
@@ -118,7 +122,9 @@ own `building_fixes.json` does:
   "ffcd5c6f8280": {
     "name": "Pokemon Center healing machine",
     "profile": [["up", 5], ["back", 14], ["up", 6], ["back", "rest"]],
-    "raise": {"colours": ["6bc66b"], "rows": [9, 22]}
+    "recess": [{"rows": [9, 21], "cols": [8, 23], "depth": 2}],
+    "raise": [{"colours": ["6bc66b"], "rows": [9, 22]}, {"colours": ["ff8473"], "rows": [23, 27]}],
+    "keep": true
   }
 }
 ```
@@ -127,8 +133,12 @@ own `building_fixes.json` does:
   `rest` the rows left; `profiles`: one for a range of columns (a keyboard lying beside a
   box);
 - `recess`: rows and columns (from the thing's box's corner) set `depth` cubes in (a
-  shelf's inside, a screen);
-- `raise`: pixels of these colours (within rows) a cube proud (a tray's balls, keys);
+  shelf's inside, a screen; where they lie, sunk along the line of sight: a tray in its
+  rim, its picture where the GBA draws it);
+- `raise`: pixels of these colours (within rows, and `cols`) a cube proud (a tray's balls,
+  keys, a tab); one, or a list;
+- `keep`: the holes closed in it keep the picture's colours (a tab the counter's colour,
+  which would otherwise be taken for the counter);
 - `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far
   a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`;
   `round_depth`: how deep a round thing is, against its width; `back_to_wall`.

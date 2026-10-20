@@ -286,3 +286,58 @@ def test_a_things_shadow_on_the_wall_is_not_painted_on_the_wall():
     grid, objs = room.build_voxels(s, g, info, things)
     wall = [c[:3] for (x, y, z), c in grid.cubes.items() if x == 78 and grid.owner[(x, y, z)] == "wall"]
     assert wall and (123, 123, 123) not in wall
+
+
+def test_a_lying_recess_sinks_along_the_line_of_sight():
+    s = _box_sprite()
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    kinds = voxel.box_kinds(lambda x, t, zf: 5, own)
+    flat, sunk = voxel.Grid(), voxel.Grid()
+    voxel.unproject_profile(flat, s, own, kinds)
+    tray = {(x, v): 2 for x in range(5, 11) for v in range(4, 7)}
+    shown = voxel.unproject_profile(sunk, s, own, kinds, recess=tray)
+    # (its top two cubes lower than the rim round it, its picture where the GBA draws it)
+    assert shown[(7, 5)][0] == shown[(3, 5)][0] - 2
+    score, _ = faithful(voxel.mesh_of(sunk, strip_v=16, strip_w=16), s)
+    was, _ = faithful(voxel.mesh_of(flat, strip_v=16, strip_w=16), s)
+    assert score["exact"] == was["exact"], (score, was)
+
+
+def test_a_thing_is_outlined_round_its_sides_and_back():
+    s = _box_sprite()
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    g = voxel.Grid()
+    voxel.unproject_profile(g, s, own, voxel.box_kinds(lambda x, t, zf: 5, own), owner="thing-0")
+    before = dict(g.cubes)
+    was, _ = faithful(voxel.mesh_of(g, strip_v=16, strip_w=16), s)
+    LINE = (60, 60, 80)
+    assert voxel.outline(g, "thing-0", LINE) > 0
+    # (what the GBA shows unchanged; the back's upright edges and its foot outlined, its
+    # middle the body's colour)
+    score, _ = faithful(voxel.mesh_of(g, strip_v=16, strip_w=16), s)
+    assert score["exact"] == was["exact"], (score, was)
+    zmin = min(z for _, _, z in g.cubes)
+    back = {(x, y): c for (x, y, z), c in g.cubes.items() if z == zmin}
+    xs = [x for x, _ in back]
+    assert back[(min(xs), 2)] == LINE and back[(max(xs), 2)] == LINE and back[(7, 0)] == LINE
+    assert back[(7, 2)] != LINE
+    assert any(g.cubes[k] != before[k] for k in before)
+
+
+def test_a_round_thing_is_outlined_only_where_its_picture_is():
+    im = np.zeros((16, 16, 4), dtype=np.uint8)
+    HEAD, POT, LINE = (240, 240, 250), (200, 170, 60), (60, 60, 80)
+    for y in range(2, 8):
+        for x in range(4, 12):
+            im[y, x] = (*HEAD, 255)                       # (a head of petals, unoutlined)
+    for y in range(8, 14):
+        for x in range(5, 11):
+            im[y, x] = (*(LINE if x in (5, 10) or y == 13 else POT), 255)
+    s = Sprite(Image.fromarray(im, "RGBA"), scale=1)
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    g = voxel.Grid()
+    voxel.lathe(g, s, own, 0, 20, "thing-0", depth=0.5)
+    voxel.outline(g, "thing-0", LINE, keep_shown=False, where=voxel.lathe_outlined(s, own, 0))
+    head = [c for (x, y, z), c in g.cubes.items() if y >= 6]
+    pot = [c for (x, y, z), c in g.cubes.items() if 1 <= y <= 4]
+    assert LINE not in head and LINE in pot
