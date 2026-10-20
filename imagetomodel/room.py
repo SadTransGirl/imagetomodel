@@ -1596,6 +1596,54 @@ def fix_for(sprite, o, fixes, g=None):
     return fixes.get(fingerprint(sprite, o, g)) or fixes.get("%d,%d" % (o["columns"][0], o["rows"][0])) or {}
 
 
+def fix_recess(o, fix):
+    """A fix's "recess": {(x, v): depth} of a thing's own pixels, its rows and columns from
+    the thing's box's corner."""
+    out = {}
+    x0, y0 = o["bbox"][0], o["bbox"][1]
+    for r in fix.get("recess", []):
+        for (x, v) in o["own"]:
+            if r["cols"][0] <= x - x0 <= r["cols"][1] and r["rows"][0] <= v - y0 <= r["rows"][1]:
+                out[(x, v)] = int(r.get("depth", 2))
+    return out
+
+
+def fix_raised(sprite, o, fix):
+    """A fix's "raise" (one or a list): its pixels of those colours, within its rows and
+    columns."""
+    out = set()
+    x0, y0 = o["bbox"][0], o["bbox"][1]
+    rs = fix.get("raise") or []
+    for r in ([rs] if isinstance(rs, dict) else rs):
+        cols_ = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in r.get("colours", [])}
+        rows_ = r.get("rows", [-10 ** 6, 10 ** 6])
+        span = r.get("cols", [-10 ** 6, 10 ** 6])
+        out |= {p for p in o["own"] if sprite.colour(*p) in cols_ and rows_[0] <= p[1] - y0 <= rows_[1]
+                and span[0] <= p[0] - x0 <= span[1]}
+    return out
+
+
+def fix_dropped(o, fix):
+    """A fix's "drop": its own pixels in those rows and columns."""
+    x0, y0 = o["bbox"][0], o["bbox"][1]
+    every = [-10 ** 6, 10 ** 6]
+    out = set()
+    for d in fix.get("drop", []):
+        out |= {p for p in o["own"] if d.get("cols", every)[0] <= p[0] - x0 <= d.get("cols", every)[1]
+                and d.get("rows", every)[0] <= p[1] - y0 <= d.get("rows", every)[1]}
+    return out
+
+
+def fix_included(sprite, o, fix):
+    """A fix's "include": the drawn pixels in those rows and columns, its own too."""
+    x0, y0 = o["bbox"][0], o["bbox"][1]
+    out = set()
+    for d in fix.get("include", []):
+        out |= {(x0 + i, y0 + j) for j in range(d["rows"][0], d["rows"][1] + 1)
+                for i in range(d["cols"][0], d["cols"][1] + 1) if sprite.colour(x0 + i, y0 + j) is not None}
+    return out
+
+
 def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4, spec=None, thick=2, fixes=None, round_depth=0.5, outlines=True):
     """The room as cubes (voxel.Grid), owned by "floor", "wall", "side-left", "side-right"
     and "thing-N" (N an index into objects()). See voxel.py for how a sprite is unprojected.
@@ -1734,42 +1782,10 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
             if p in objs[u]["own"] and colour is not None:
                 paint.setdefault(u, {})[p] = colour
 
-    def recess_of(o, fix):
-        out = {}
-        x0, y0 = o["bbox"][0], o["bbox"][1]
-        for r in fix.get("recess", []):
-            for (x, v) in o["own"]:
-                if r["cols"][0] <= x - x0 <= r["cols"][1] and r["rows"][0] <= v - y0 <= r["rows"][1]:
-                    out[(x, v)] = int(r.get("depth", 2))
-        return out
-
-    def raised_of(o, fix):
-        out = set()
-        x0, y0 = o["bbox"][0], o["bbox"][1]
-        rs = fix.get("raise") or []
-        for r in ([rs] if isinstance(rs, dict) else rs):
-            cols_ = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in r.get("colours", [])}
-            rows_ = r.get("rows", [-10 ** 6, 10 ** 6])
-            span = r.get("cols", [-10 ** 6, 10 ** 6])
-            out |= {p for p in o["own"] if sprite.colour(*p) in cols_ and rows_[0] <= p[1] - y0 <= rows_[1]
-                    and span[0] <= p[0] - x0 <= span[1]}
-        return out
-
-    def dropped(o, fix):
-        x0, y0 = o["bbox"][0], o["bbox"][1]
-        out = set()
-        for d in fix.get("drop", []):
-            out |= {p for p in o["own"] if d.get("cols", [-10 ** 6, 10 ** 6])[0] <= p[0] - x0 <= d.get("cols", [-10 ** 6, 10 ** 6])[1]
-                    and d.get("rows", [-10 ** 6, 10 ** 6])[0] <= p[1] - y0 <= d.get("rows", [-10 ** 6, 10 ** 6])[1]}
-        return out
-
-    def included(o, fix):
-        x0, y0 = o["bbox"][0], o["bbox"][1]
-        out = set()
-        for d in fix.get("include", []):
-            out |= {(x0 + i, y0 + j) for j in range(d["rows"][0], d["rows"][1] + 1)
-                    for i in range(d["cols"][0], d["cols"][1] + 1) if sprite.colour(x0 + i, y0 + j) is not None}
-        return out
+    recess_of = fix_recess
+    raised_of = lambda o, fix: fix_raised(sprite, o, fix)
+    dropped = fix_dropped
+    included = lambda o, fix: fix_included(sprite, o, fix)
 
     standing_on = {u for u in (under_object(o) for o in objs) if u is not None}
     order = sorted(range(len(objs)), key=lambda k: (k in standing_on, objs[k]["kind"] == "free"))

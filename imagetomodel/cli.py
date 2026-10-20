@@ -59,9 +59,20 @@ def main(argv=None):
     r.add_argument("--tops", choices=("painted", "picture"), default="painted", help="the top of a thing standing against the wall: painted from its art, or the picture the GBA draws there (the wall's band: exact from its angle)")
     r.add_argument("--views", default="three-quarter,front", help="which other views to draw (%s)" % ",".join(VIEWS))
     r.add_argument("--preview-scale", type=int, default=4)
+    t = sub.add_parser("town", help="a town (an outdoor map) from the game's own data: pret's decompilation")
+    t.add_argument("map", help="the map's folder in the decompilation's data/maps (PalletTown)")
+    t.add_argument("--decomp", required=True, help="a copy of pret's pokefirered (LGFR3D's external/pokefirered)")
+    t.add_argument("--labels", action="append", default=[], help="what each tile is: LGFR3D's godot/tile_labels.json (and tools/tile_labels_fixes.json); else read from the tiles' behaviour")
+    t.add_argument("-o", "--out", default="out")
+    t.add_argument("--name", help="the model's name (the map's)")
+    t.add_argument("--fixes", action="append", default=[], help="a JSON file of things set by hand, by fingerprint (see NAME-labels.json); the library shipped with the tool always applies")
+    t.add_argument("--views", default="three-quarter", help="which other views to draw (%s)" % ",".join(VIEWS))
+    t.add_argument("--preview-scale", type=int, default=3)
     a = ap.parse_args(argv)
     if a.command == "room":
         return room_main(a)
+    if a.command == "town":
+        return town_main(a)
 
     ground = [hex_colour(c) for c in a.ground.split(",")] if a.ground else None
     sprite = Sprite.load(a.sprite, scale=a.scale, ground=ground)
@@ -259,6 +270,76 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
         print("set by hand (fixes): %s" % ", ".join(fixed))
     if animated:
         print("animated (a GIF, .vox and .glb each, in its folder): %s" % ", ".join(animated))
+    return 0
+
+
+def town_main(a):
+    """A town in true voxels, from the game's own data: NAME.png (the map as the GBA draws
+    it), NAME.vox (in blocks of 256), the port's model, a .glb and .obj, how faithful, and
+    each thing on its own, as a room's."""
+    from . import room, town, voxel
+    from .decomp import Decomp
+    d = Decomp(a.decomp)
+    m = d.map(a.map)
+    labels = {}
+    for path in a.labels:
+        labels.update(json.load(open(path)))
+    tw = town.Town(d, m, labels)
+    fixes = room.load_fixes(a.fixes)
+    grid = town.build_voxels(tw, fixes)
+    name = a.name or a.map
+    os.makedirs(a.out, exist_ok=True)
+    stem = os.path.join(a.out, name)
+    sprite = tw.sprite
+    sprite.image().save(stem + ".png")
+    listed = []
+    for k, t in enumerate(tw.things):
+        fix = fixes.get(town.fingerprint(tw, t)) or {}
+        listed.append({"owner": "thing-%d" % k, "class": t["class"], "tiles": t["tiles"], "bbox": t["bbox"],
+                       "fingerprint": town.fingerprint(tw, t), "fixed": fix.get("name", bool(fix))})
+    with open(stem + "-labels.json", "w") as f:
+        json.dump({"map": a.map, "size": [tw.W, tw.H], "labels": tw.labels, "objects": listed}, f, indent=1)
+    voxel.write_vox(stem + ".vox", grid)
+    mesh = voxel.mesh_of(grid, strip_v=sprite.H, strip_w=sprite.W)
+    whole = lgfr.model(mesh, sprite, "imagetomodel town %s" % name, paint_all=False)
+    lgfr.write(stem + ".lgfr.json", whole)
+    gltf.write_glb(stem + ".glb", mesh, sprite, name=name, split=True)
+    gltf.write_obj(stem + ".obj", mesh, sprite, name=name, split=True)
+    score, sheet = faithful(mesh, sprite)
+    sheet.save(stem + "-faithful.png")
+    for view in [v for v in a.views.split(",") if v]:
+        render(mesh, sprite.rgba, view, scale=a.preview_scale).save("%s-%s.png" % (stem, view))
+    things_dir = stem + "-things"
+    os.makedirs(things_dir, exist_ok=True)
+    for k, t in enumerate(tw.things):
+        owner = "thing-%d" % k
+        mine = grid.only(owner)
+        if not len(mine):
+            continue
+        (ca, cb), (ta, tb) = t["columns"], t["rows"]
+        bx, by = ca * 16, ta * 16
+        crop = sprite.crop(bx, by, (cb - ca + 1) * 16, (tb - ta + 1) * 16)
+        moved = mine.moved(-bx, 0, -by)
+        folder = os.path.join(things_dir, owner)
+        os.makedirs(folder, exist_ok=True)
+        ostem = os.path.join(folder, owner)
+        voxel.write_vox(ostem + ".vox", moved)
+        omesh = voxel.mesh_of(moved, strip_v=crop.H, strip_w=crop.W, name=owner)
+        model = lgfr.model(omesh, crop, "imagetomodel %s %s" % (name, owner), paint_all=False)
+        model["imagetomodel"].update({"tiles": [ca, ta, cb, tb], "bbox": t["bbox"], "class": t["class"], "cubes": len(moved)})
+        lgfr.write(ostem + ".lgfr.json", model)
+        gltf.write_glb(ostem + ".glb", omesh, crop, name=owner)
+        render(omesh, crop.rgba, "three-quarter", scale=a.preview_scale * 2).save(ostem + "-three-quarter.png")
+    kinds = {}
+    for t in tw.things:
+        kinds[t["class"]] = kinds.get(t["class"], 0) + 1
+    print("%s: %d x %d cells, things: %s; %d cubes, %d faces" % (name, tw.W, tw.H,
+          ", ".join("%d %s" % (n, k) for k, n in sorted(kinds.items())), len(grid), len(mesh.polys)))
+    print("faithful: %.1f%% of the map's pixels exact, %.1f%% covered, colour distance %.3f"
+          % (score["exact"] * 100, score["covered"] * 100, score["colour_distance"]))
+    fixed = [x["fixed"] for x in listed if isinstance(x["fixed"], str)]
+    if fixed:
+        print("set by hand (fixes): %s" % ", ".join(fixed))
     return 0
 
 

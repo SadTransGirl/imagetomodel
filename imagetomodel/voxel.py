@@ -249,8 +249,10 @@ def write_vox(path, grid):
     256 cubes a side doesn't fit and raises."""
     (x0, y0, z0), (x1, y1, z1) = grid.bounds()
     sx, sy, sz = x1 - x0 + 1, z1 - z0 + 1, y1 - y0 + 1
-    if max(sx, sy, sz) > 256:
-        raise ValueError("%dx%dx%d cubes: MagicaVoxel holds 256 a side" % (sx, sy, sz))
+    if sz > 256:
+        raise ValueError("%d cubes tall: MagicaVoxel holds 256 a side" % sz)
+    if max(sx, sy) > 256:
+        return _write_vox_blocks(path, grid)
     counts = Counter(grid.cubes.values())
     palette = [c for c, _ in counts.most_common(255)]
     index = {c: i + 1 for i, c in enumerate(palette)}
@@ -277,6 +279,64 @@ def write_vox(path, grid):
     main = chunk(b"MAIN", b"", size + xyzi + chunk(b"RGBA", bytes(rgba)))
     with open(path, "wb") as f:
         f.write(b"VOX " + struct.pack("<i", 150) + main)
+
+
+def _write_vox_blocks(path, grid, block=256):
+    """A grid wider or deeper than MagicaVoxel's 256 a side (a town): a model a block of
+    256 by 256, each placed in the scene (a transform of its own) where it lies, so they
+    open together as one; one palette."""
+    (x0, y0, z0), (x1, y1, z1) = grid.bounds()
+    counts = Counter(grid.cubes.values())
+    palette = [c for c, _ in counts.most_common(255)]
+    index = {c: i + 1 for i, c in enumerate(palette)}
+
+    def nearest(c):
+        if c not in index:
+            best = min(palette, key=lambda p: sum((p[k] - c[k]) ** 2 for k in range(3)))
+            index[c] = index[best]
+        return index[c]
+    blocks = {}
+    for (x, y, z), c in grid.cubes.items():
+        vx, vy, vz = x - x0, z1 - z, y - y0
+        blocks.setdefault((vx // block, vy // block), []).append((vx % block, vy % block, vz, nearest(c)))
+
+    def chunk(tag, content, children=b""):
+        return tag + struct.pack("<ii", len(content), len(children)) + content + children
+
+    def string(t):
+        b = t.encode()
+        return struct.pack("<i", len(b)) + b
+
+    def dct(d):
+        return struct.pack("<i", len(d)) + b"".join(string(k) + string(str(v)) for k, v in d.items())
+    body = b""
+    keys = sorted(blocks)
+    sz = y1 - y0 + 1
+    for (bx, by) in keys:
+        cubes = blocks[(bx, by)]
+        sx = min(block, (x1 - x0 + 1) - bx * block)
+        sy = min(block, (z1 - z0 + 1) - by * block)
+        body += chunk(b"SIZE", struct.pack("<iii", sx, sy, sz))
+        body += chunk(b"XYZI", struct.pack("<i", len(cubes)) + b"".join(bytes(c) for c in cubes))
+    # (the scene: a root transform, a group, and a transform and a shape a block, each
+    # block's middle where it lies)
+    n = len(keys)
+    body += chunk(b"nTRN", struct.pack("<i", 0) + dct({}) + struct.pack("<iiii", 1, -1, -1, 1) + dct({}))
+    body += chunk(b"nGRP", struct.pack("<i", 1) + dct({}) + struct.pack("<i", n) + b"".join(struct.pack("<i", 2 + 2 * i) for i in range(n)))
+    for i, (bx, by) in enumerate(keys):
+        sx = min(block, (x1 - x0 + 1) - bx * block)
+        sy = min(block, (z1 - z0 + 1) - by * block)
+        at = "%d %d %d" % (bx * block + sx // 2, by * block + sy // 2, sz // 2)
+        body += chunk(b"nTRN", struct.pack("<i", 2 + 2 * i) + dct({"_name": "block %d,%d" % (bx, by)}) +
+                      struct.pack("<iiii", 3 + 2 * i, -1, 0, 1) + dct({"_t": at}))
+        body += chunk(b"nSHP", struct.pack("<i", 3 + 2 * i) + dct({}) + struct.pack("<i", 1) + struct.pack("<i", i) + dct({}))
+    rgba = bytearray()
+    for i in range(256):
+        c = palette[i] if i < len(palette) else (0, 0, 0)
+        rgba += bytes((c[0], c[1], c[2], 255 if i < len(palette) else 0))
+    body += chunk(b"RGBA", bytes(rgba))
+    with open(path, "wb") as f:
+        f.write(b"VOX " + struct.pack("<i", 200) + chunk(b"MAIN", b"", body))
 
 
 def read_vox(path):

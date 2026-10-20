@@ -280,6 +280,36 @@ the machine's lower rows show on the counter's top as well. The walls standing a
 room's sides and corners cover, from the GBA's angle, the rows above them (the GBA drew
 them flat), so a room scores a little under a building.
 
+## Towns: an outdoor map from the game's own data
+
+    imagetomodel town PalletTown --decomp LGFR3D/external/pokefirered \
+        --labels LGFR3D/godot/tile_labels.json --labels LGFR3D/tools/tile_labels_fixes.json -o out
+
+A town isn't read from a screenshot: it's drawn from pret's decompilation (LGFR3D's
+`external/pokefirered`, as LGFR3D's `tools/object_library.py` reads it): the map's layout
+(a metatile a cell), its tilesets' metatiles from their tiles and palettes, each tile's
+behaviour (`decomp.py`). What each cell is comes from LGFR3D's tile labels (ground, water,
+tree, fence, sign, building, prop), or, without them, from its behaviour and whether it's
+walked through. Nothing of the game's is kept: it's read from your copy.
+
+- **the ground** is a layer of cubes, each cell its picture; under a thing, the ground
+  tile most like what's round it;
+- **the water** is sunk a cube (along the line of sight, its picture where the GBA draws
+  it), its banks at the ground's height round it;
+- **the things** (the cells of each kind together; a cell drawn hardly at all but the
+  ground, a grass patch's corner labelled with the house beside it, is ground) are cut
+  from the ground round them and built as a room's are, by the same fixes, by the same
+  fingerprints: a building's front is the rows under its roof (read from the top down,
+  its upper half's colour); a fence or a sign stands face on, as thick as a post;
+- **the trees** of a border (the outdoor set's pines) are each a thing: its body's two
+  cells, its tip in the cell above (a tip's own, or a junction's lower half, the tree
+  above's foot over it) and its foot in the cell below, turned round.
+
+It writes what a room does (NAME.png, the map as the GBA draws it; NAME.vox, in blocks of
+256 a side placed in MagicaVoxel's scene, a town being wider than a model can be;
+NAME.lgfr.json, .glb, .obj, the faithfulness, the labels and each thing in
+NAME-things/thing-N/).
+
 ## What's written
 
 | file | what |
@@ -347,7 +377,9 @@ imagetomodel/lgfr.py       the model JSON as LGFR3D keeps it
 imagetomodel/room.py       a room from a screenshot: the grid, each tile's label, the things, the mesh
 imagetomodel/voxel.py      cubes: a sprite unprojected, meshed greedily, written as MagicaVoxel .vox
 imagetomodel/animate.py    what a thing does, in frames: a GIF, an animated .vox, a .glb animation
-imagetomodel/cli.py        imagetomodel building ..., imagetomodel room ...
+imagetomodel/decomp.py     a map from pret's decompilation: its layout, its metatiles drawn, its tiles' behaviour
+imagetomodel/town.py       a town in voxels: the ground, the water, its things and trees
+imagetomodel/cli.py        imagetomodel building ..., imagetomodel room ..., imagetomodel town ...
 tests/synthetic.py         a building drawn by hand, in the GBA's manner, for the tests
 tests/synthetic_room.py    a room, likewise
 ```
