@@ -306,7 +306,7 @@ def read_vox(path):
 
 # --- a profile: each row of a thing standing or lying ---
 
-def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None):
+def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None):
     """A thing's cubes, row by row up each column from its foot: `kind_of(x, v)` says
     whether row v stands ("up": a cube on top of the last, its front face the pixel) or lies
     ("back": a cube behind the last, its top face the pixel). A box is its front rows up and
@@ -316,6 +316,8 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     `back_of(x)`: a z its top reaches back to past what's drawn (to the wall).
     `recess`: {(x, v): k} pixels set k cubes back into it (a shelf's inside).
     `raised`: pixels standing a cube proud (a ball on a tray, a key on a keyboard).
+    `colours`: {(x, v): colour} for pixels that wear another than the picture's (a hole
+    closed with the thing's own colour).
     Returns {(x, v): (y, z)}, the cube each pixel is shown on."""
     recess = recess or {}
     raised = raised or set()
@@ -331,7 +333,7 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
         y, z = 0, zf
         last = None
         for v in range(zf - 1, top - 1, -1):
-            c = sprite.colour(x, v) if (x, v) in own else None
+            c = ((colours or {}).get((x, v)) or sprite.colour(x, v)) if (x, v) in own else None
             kind = kind_of(x, v)
             if kind == "up":
                 k = recess.get((x, v), 0)

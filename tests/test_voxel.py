@@ -89,7 +89,8 @@ def test_room_in_voxels_is_faithful_and_things_stand():
     grid, objs = room.build_voxels(s, g, info, things)
     mesh = voxel.mesh_of(grid, strip_v=s.H, strip_w=s.W)
     score, _ = faithful(mesh, s)
-    assert score["exact"] >= 0.96, score
+    # (what's built past the picture, a closed hole, a thing proud of the wall, costs a little)
+    assert score["exact"] >= 0.95, score
     assert score["covered"] >= 0.995, score
     owners = set(grid.owner.values())
     assert {"floor", "wall", "side-left", "side-right"} <= owners
@@ -237,3 +238,36 @@ def test_an_escalator_is_built_climbing_where_its_handrails_climb():
             tops[x] = max(tops.get(x, 0), y)
     assert tops[0] > tops[25]                                         # (higher at the left)
     assert len({z for (x, y, z), c in g.cubes.items() if c == rail}) >= 2   # (two balustrades)
+
+
+def test_what_hangs_on_the_wall_stands_proud_of_it():
+    s = Sprite(draw_room())
+    room.mark_void(s)
+    g = room.grid(s)
+    info = room.label(s, g)
+    things = room.runs(info, g)
+    grid, objs = room.build_voxels(s, g, info, things)
+    k = next(i for i, o in enumerate(objs) if o["kind"] == "on-wall")
+    cubes = [key for key, o in grid.owner.items() if o == "thing-%d" % k]
+    wall_z = (info["wall_first"] + info["wall_rows"]) * 16
+    assert cubes and min(z for _, _, z in cubes) >= wall_z            # (in front of the wall's face)
+    assert max(z for _, _, z in cubes) - min(z for _, _, z in cubes) >= 1
+    # (moved up as far as it stands out: its picture where the GBA draws it)
+    mesh = voxel.mesh_of(grid, strip_v=s.H, strip_w=s.W)
+    view = np.array(render(mesh, s.rgba, "gba", scale=1, frame=(0, 0, s.W, s.H), shade=False))
+    poster = objs[k]["own"]
+    same = sum(1 for (x, y) in poster if tuple(view[y, x, :3]) == s.colour(x, y))
+    assert same >= 0.8 * len(poster)
+
+
+def test_holes_in_a_thing_are_closed():
+    im = np.zeros((16, 16, 4), dtype=np.uint8)
+    for y in range(2, 14):
+        for x in range(2, 14):
+            im[y, x] = (200, 200, 210, 255)
+    s = Sprite(Image.fromarray(im, "RGBA"), scale=1)
+    info = {"sprite": s, "floor_colours": [], "wall_colours": []}
+    own = {(x, y) for y in range(2, 14) for x in range(2, 14)} - {(7, y) for y in range(6, 14)} - {(x, 9) for x in range(4, 12)}
+    holes = room._holes(info, own, {})
+    assert (7, 9) in holes and (5, 9) in holes and (7, 12) in holes
+    assert (1, 9) not in holes

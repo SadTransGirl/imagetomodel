@@ -124,7 +124,7 @@ def room_main(a):
     stem = os.path.join(a.out, name)
     with open(stem + "-labels.json", "w") as f:
         json.dump({"grid": g, "wall_rows": info["wall_rows"], "wall_first": info["wall_first"], "labels": info["labels"],
-                   "things": things, "objects": [{k: v for k, v in o.items() if k not in ("own", "tiles")} for o in objs],
+                   "things": things, "objects": [{k: v for k, v in o.items() if k not in ("own", "tiles", "art", "fill")} for o in objs],
                    "floor_colours": info["floor_colours"], "wall_colours": info["wall_colours"]}, f, indent=1)
     room.labels_picture(sprite, g, info, things, scale=a.preview_scale).save(stem + "-labels.png")
     # the whole room as one model; and each thing as a model of its own tiles
@@ -188,7 +188,7 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
     with open(stem + "-labels.json", "w") as f:
         listed = []
         for k, o in enumerate(objs):
-            entry = {key: v for key, v in o.items() if key not in ("own", "tiles")}
+            entry = {key: v for key, v in o.items() if key not in ("own", "tiles", "art", "fill")}
             entry["owner"] = "thing-%d" % k
             entry["fingerprint"] = room.fingerprint(sprite, o)
             fix = room.fix_for(sprite, o, fixes)

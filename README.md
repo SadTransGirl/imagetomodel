@@ -93,7 +93,13 @@ Some things are found and built their own way:
 - **an escalator** (tiles drawn as treads, with the things touching them) is built as
   steps between two glass balustrades, a handrail along each, climbing where its handrails
   climb in the picture;
-- **the shadow** the GBA draws beside a thing on the floor is the floor's.
+- **the shadow** the GBA draws beside a thing on the floor is the floor's;
+- **holes** in a thing (a pixel with the thing to its left, its right and above it) are
+  closed, wearing the thing's own colour where they showed the counter or the wall
+  through it: a machine's tray is whole, its lip a panel;
+- **what hangs on the wall** (a TV, a map) stands proud of it as a box, as deep as a fifth
+  of its height (`depth` in a fix sets it), moved up as far as it stands out so its picture
+  stays where the GBA draws it.
 
 ### Fixes: things set by hand
 
@@ -118,8 +124,9 @@ in every room drawn with it, as LGFR3D's own `building_fixes.json` does:
 - `recess`: rows and columns (from the thing's box's corner) set `depth` cubes in (a
   shelf's inside, a screen);
 - `raise`: pixels of these colours (within rows) a cube proud (a tray's balls, keys);
-- `drop`: pixels that aren't the thing's; `front`: its front's height; `shape`: `box`,
-  `round`, `slab`, `escalator`; `back_to_wall`.
+- `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far
+  a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`;
+  `back_to_wall`.
 
 The library shipped with the tool (`imagetomodel/fixes/rooms.json`) has the Pokemon
 Center's shelf, PC, healing machine and nurse's PC; `--fixes FILE` adds more, and a spec's
@@ -285,8 +292,7 @@ No Nintendo art is in this repository: the tests draw their own building.
 ## Next
 
 - rooms: stairs drawn as stairs (not an escalator), a person standing in the screenshot
-  (masked out), what hangs on the wall (a TV, a map) standing proud of it, water; more
-  fixes for the things of other rooms;
+  (masked out), water; more fixes for the things of other rooms;
 - buildings in true voxels too;
 - more roof styles read from the art: a ridge with two slopes (a gable), the eave that
   curves down over the wall (a Center's, a Mart's), a flat roof with a rim;
