@@ -124,3 +124,19 @@ def test_room_cli_writes_voxels():
             # (every face wears a plain colour painted in the strip under the picture)
             H = model["size"][1] * 16
             assert all(v >= H for v in piece["uvs"][1::2])
+
+
+def test_the_floor_shadow_beside_a_thing_is_not_the_thing():
+    s = _box_sprite()
+    im = s.rgba.copy()
+    SHADOW = (123, 123, 123, 255)
+    for y in range(4, 14):
+        im[y, 14] = SHADOW                               # (to its right)
+    for x in range(4, 15):
+        im[13, x] = SHADOW                               # (below it)
+    s2 = Sprite(Image.fromarray(im, "RGBA"))
+    own = {(x, y) for y in range(16) for x in range(16) if s2.drawn[y, x]}
+    shadow = room._drop_shadow(s2, own)
+    assert {(14, y) for y in range(4, 14)} <= shadow and {(x, 13) for x in range(4, 15)} <= shadow
+    # (none of the box itself: its outline and its grey-free body stay)
+    assert not shadow & {(x, y) for y in range(2, 13) for x in range(2, 14)}

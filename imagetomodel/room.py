@@ -576,6 +576,30 @@ def _wall_match(info, g, tx, ty):
     return best
 
 
+def _drop_shadow(sprite, own):
+    """The shadow the GBA draws on the floor beside a thing: neutral grey pixels outside its
+    dark outline, to the right of it in a row or below it in a column."""
+    def shade(c):
+        h, s, v = hsv(c)
+        return s < 0.12 and 0.3 < v < 0.65 and not _dark(c)
+    rows, cols = {}, {}
+    for (x, y) in own:
+        rows.setdefault(y, []).append(x)
+        cols.setdefault(x, []).append(y)
+    out = set()
+    for y, xs in rows.items():
+        darks = [x for x in xs if _dark(sprite.colour(x, y))]
+        past = [x for x in xs if darks and x > max(darks)]
+        if past and all(shade(sprite.colour(x, y)) for x in past):
+            out |= {(x, y) for x in past}
+    for x, ys in cols.items():
+        darks = [y for y in ys if _dark(sprite.colour(x, y))]
+        past = [y for y in ys if darks and y > max(darks)]
+        if past and all(shade(sprite.colour(x, y)) for y in past):
+            out |= {(x, y) for y in past}
+    return out
+
+
 def _main_pieces(pixels, share=0.2):
     """The connected pieces of a set of pixels (8-connected) at least `share` the size of
     the biggest: a flower without the slivers of the counter's edge beside it."""
@@ -660,6 +684,8 @@ def objects(info, g, things):
         own |= back - seen
         if first["cutout"] and own:
             own = _main_pieces(own)
+        elif own:
+            own -= _drop_shadow(sprite, own)
         if not own:
             continue
         xs = [p[0] for p in own]
