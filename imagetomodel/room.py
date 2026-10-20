@@ -1839,9 +1839,17 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                 kinds = voxel.box_kinds(lambda x, top, zf, h=h: h, own_set)
             to_wall = fix.get("back_to_wall", kind == "against-wall")
             back_of = (lambda x, yb=yb: wall_z - yb) if to_wall else None
+            stretch = float(fix.get("stretch", 1.0))
+            if fix.get("square"):
+                # (its top as deep as it's wide: the rows the middle column lies, stretched)
+                x0_, _, x1_, y1_ = o["bbox"]
+                xm = (x0_ + x1_) // 2
+                lying = sum(1 for v in range(o["bbox"][1], y1_) if (xm, v) in own_set and kinds(xm, v) == "back")
+                stretch = max(1.0, (x1_ - x0_) / float(lying)) if lying else 1.0
             shown = voxel.unproject_profile(part, sprite, own_set, kinds, back_of=back_of, owner=owner,
                                             recess=recess_of(o, fix), raised=raised_of(o, fix),
-                                            colours=None if fix.get("keep") else o.get("fill"))
+                                            colours=None if fix.get("keep") else o.get("fill"),
+                                            stretch=stretch)
             if u is not None:
                 under_cubes.setdefault(u, set()).update(shown)
             if k in paint:

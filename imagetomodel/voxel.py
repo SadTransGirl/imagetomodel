@@ -307,7 +307,7 @@ def read_vox(path):
 
 # --- a profile: each row of a thing standing or lying ---
 
-def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None):
+def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None, stretch=1.0):
     """A thing's cubes, row by row up each column from its foot: `kind_of(x, v)` says
     whether row v stands ("up": a cube on top of the last, its front face the pixel) or lies
     ("back": a cube behind the last, its top face the pixel). A box is its front rows up and
@@ -319,6 +319,9 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     `raised`: pixels standing a cube proud (a ball on a tray, a key on a keyboard).
     `colours`: {(x, v): colour} for pixels that wear another than the picture's (a hole
     closed with the thing's own colour).
+    `stretch`: how many cubes deep each row that lies is (at least 1; the GBA draws a top
+    shorter than it's deep: a cushion's square top in fewer rows than it's wide), the rows
+    past each moved back as far, so drawn a little higher than the GBA draws them.
     Returns {(x, v): (y, z)}, the cube each pixel is shown on."""
     recess = recess or {}
     raised = raised or set()
@@ -335,6 +338,7 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
         top, zf = vs[0], vs[-1] + 1
         y, z = 0, zf
         last = None
+        deep = 0.0
         for v in range(zf - 1, top - 1, -1):
             c = ((colours or {}).get((x, v)) or sprite.colour(x, v)) if (x, v) in own else None
             kind = kind_of(x, v)
@@ -376,6 +380,18 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                     heights[(x, z - 1 - j)] = max(heights.get((x, z - 1 - j), 0), y - k)
                 z -= 1
                 last = "back"
+                # (deeper than drawn: the row again behind itself)
+                more = int(math.floor(deep + stretch + 1e-9)) - int(math.floor(deep + 1e-9)) - 1
+                deep += stretch
+                for _ in range(max(0, more)):
+                    if c is not None:
+                        placed.setdefault((x, y - 1 - k, z - 1 - k), c)
+                        if (x, v) in raised:
+                            placed[(x, y - k, z - 1 - k)] = c
+                            proud.add((x, y - k, z - 1 - k))
+                            heights[(x, z - 1 - k)] = max(heights.get((x, z - 1 - k), 0), y + 1 - k)
+                    heights[(x, z - 1 - k)] = max(heights.get((x, z - 1 - k), 0), y - k)
+                    z -= 1
         # (reaching back to the wall past what's drawn: the top's body, outlined at the back)
         if back_of is not None and y > 0:
             col = Counter(sprite.colour(x, v) for v in vs if not _dark(sprite.colour(x, v)))

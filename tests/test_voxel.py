@@ -392,3 +392,17 @@ def test_front_corners_rounded_their_bands_running_round():
     assert n == 5 * 3 * 2                                     # (both front corners, each layer)
     assert (0, 1, 9) not in g.cubes and (0, 1, 0) in g.cubes   # (its back corners left square)
     assert g.cubes[(1, 1, 8)] == BAND                          # (the band, not the outline, round it)
+
+
+def test_a_top_stretched_deeper_than_drawn():
+    s = _box_sprite()
+    own = {(x, y) for y in range(16) for x in range(16) if s.drawn[y, x]}
+    kinds = voxel.box_kinds(lambda x, t, zf: 5, own)
+    drawn, deep = voxel.Grid(), voxel.Grid()
+    voxel.unproject_profile(drawn, s, own, kinds)
+    voxel.unproject_profile(deep, s, own, kinds, stretch=2.0)
+    depth = lambda g: max(z for _, _, z in g.cubes) - min(z for _, _, z in g.cubes) + 1
+    assert depth(deep) > depth(drawn) + 3
+    # (its front where the GBA draws it, its top's colours the same, only deeper)
+    assert {c for (x, y, z), c in deep.cubes.items() if z == 12} == {c for (x, y, z), c in drawn.cubes.items() if z == 12}
+    assert {c for (x, y, z), c in deep.cubes.items() if y == 4} == {c for (x, y, z), c in drawn.cubes.items() if y == 4}

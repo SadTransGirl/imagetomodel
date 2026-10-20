@@ -141,6 +141,9 @@ own `building_fixes.json` does:
 - `sides`: `{"colour": "rrggbb", "panel": "rrggbb"}` its left and right faces one colour
   (where its front is crossed by lines that would band them), a panel inset a cube; or a
   `"left"` and a `"right"` each (a screen on the side the GBA never shows);
+- `square`: its top as deep as it's wide (the GBA draws a top in fewer rows than it's
+  deep: a cushion's); `stretch`: each row that lies that many cubes deep (it's then drawn a
+  little higher than the GBA draws it);
 - `round`: its upright front corners rounded, that many cubes round (a counter's ends),
   the bands its front wears running on round them;
 - `keep`: the holes closed in it keep the picture's colours (a tab the counter's colour,
@@ -172,7 +175,7 @@ picture's own outlines.
 ```
 
 The library shipped with the tool (`imagetomodel/fixes/rooms.json`) has the Pokemon
-Center's counter, shelf, PC, healing machine, nurse's PC, potted palm and flowers; `--fixes FILE` adds more, and a spec's
+Center's counter, shelf, PC, healing machine, nurse's PC, potted palm, flowers and cushions; `--fixes FILE` adds more, and a spec's
 `"objects"` may key a fix by the thing's first tile (`"5,1"`) for one room.
 
 `--style faces` builds the earlier way instead: boxes with their sides painted from the
