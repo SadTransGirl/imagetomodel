@@ -283,14 +283,29 @@ def label(sprite, g, spec=None):
     # (what's said to be floor but isn't the floor's colours (a rug): on it and beside it, a
     # thing standing on it is cut from it as from the floor; not elsewhere (a plant's leaves
     # may be its greens))
-    rug_colours = set()
-    for k in said_floor:
-        rug_colours |= {c for c in counts[k] if not _alike(c, floor_colours)}
     rug = {}
-    for (x, y) in said_floor:
-        for dy in (-1, 0, 1):
-            for dx in (-1, 0, 1):
-                rug[(x + dx, y + dy)] = rug_colours
+    left = set(said_floor)
+    while left:
+        # (each rug its own colours: those it's made of (1% of it or more), not an
+        # outline, not what stands on it spilling into its tiles)
+        patch = {left.pop()}
+        todo = list(patch)
+        while todo:
+            x, y = todo.pop()
+            for q in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+                if q in left:
+                    left.discard(q)
+                    patch.add(q)
+                    todo.append(q)
+        made = Counter()
+        for k in patch:
+            made.update(counts[k])
+        total = sum(made.values()) or 1
+        rug_colours = {c for c, n in made.items() if n >= 0.01 * total and not _dark(c) and not _alike(c, floor_colours)}
+        for (x, y) in patch:
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    rug.setdefault((x + dx, y + dy), set()).update(rug_colours)
     return {"_oy": oy, "labels": labels, "wall_first": first, "wall_rows": wall_rows,
             "floor_colours": ["%02x%02x%02x" % c for c in sorted(floor_colours)],
             "rug": rug, "groups": [list(r) for r in (spec.get("things") or [])],
@@ -986,35 +1001,62 @@ def objects(info, g, things):
                     "kind": kind, "rows": [a, b], "columns": [min(by_run[k]["x"] for k in group), max(by_run[k]["x"] for k in group)],
                     "tiles": tiles, "own": own, "bbox": [min(xs), min(ys), max(xs) + 1, max(ys) + 1],
                     "cutout": first["cutout"], "under": first["under"], "runs": group})
-    return escalators(info, g, grouped(info, out))
+    return escalators(info, g, grouped(info, out, g))
 
 
-def grouped(info, objs):
+def grouped(info, objs, g):
     """The things the spec says are one ("things": [[x0, y0, x1, y1], ...], tiles from the
-    grid's corner, inclusive): those with tiles in the same box, merged, standing as the most
-    upright of them (against the wall, tall, free)."""
+    grid's corner, inclusive): what's drawn in each box's tiles one thing, merged from the
+    things with tiles there (or split from one with tiles outside it too: two chairs one
+    behind the other, touching), standing as the most upright of them (against the wall,
+    tall, free)."""
     rank = {"against-wall": 0, "tall": 1, "free": 2, "on-band": 3, "flat": 4, "on-wall": 5}
-    out = list(objs)
-    for x0, y0, x1, y1 in info.get("groups", []):
-        inside = [o for o in out if any(x0 <= tx <= x1 and y0 <= ty <= y1 for tx, ty in o["tiles"])]
-        if len(inside) < 2:
-            continue
-        own = set().union(*(o["own"] for o in inside))
-        tiles = [t for o in inside for t in o["tiles"]]
+    tile_of = lambda p: ((p[0] - g["ox"]) // PX, (p[1] - g["oy"]) // PX)
+
+    def made(base, own, tiles, art, fill, shadow, runs):
         xs = [p[0] for p in own]
         ys = [p[1] for p in own]
-        first = min(inside, key=lambda o: rank.get(o["kind"], 9))
-        merged = dict(first)
-        merged.update({"art": set().union(*(o["art"] for o in inside)), "own": own, "tiles": tiles,
-                       "fill": {k: v for o in inside for k, v in o["fill"].items()},
-                       "shadow": set().union(*(o["shadow"] for o in inside)) - own,
-                       "rows": [min(t[1] for t in tiles), max(t[1] for t in tiles)],
-                       "columns": [min(t[0] for t in tiles), max(t[0] for t in tiles)],
-                       "bbox": [min(xs), min(ys), max(xs) + 1, max(ys) + 1],
-                       "runs": [r for o in inside for r in o["runs"]]})
-        out = [o for o in out if not any(o is i for i in inside)] + [merged]
+        o = dict(base)
+        o.update({"art": art, "own": own, "tiles": tiles, "fill": fill, "shadow": shadow - own,
+                  "rows": [min(t[1] for t in tiles), max(t[1] for t in tiles)],
+                  "columns": [min(t[0] for t in tiles), max(t[0] for t in tiles)],
+                  "bbox": [min(xs), min(ys), max(xs) + 1, max(ys) + 1], "runs": runs})
+        return o
+    out = list(objs)
+    for x0, y0, x1, y1 in info.get("groups", []):
+        inbox = lambda t: x0 <= t[0] <= x1 and y0 <= t[1] <= y1
+        pieces, rest = [], []
+        for o in out:
+            if not any(inbox(t) for t in o["tiles"]):
+                rest.append(o)
+                continue
+            if all(inbox(t) for t in o["tiles"]):
+                pieces.append(o)
+                continue
+            # (split: its tiles in the box here, the rest a thing as it was)
+            pick = lambda ps: {p for p in ps if inbox(tile_of(p))}
+            own_in, own_out = pick(o["own"]), o["own"] - pick(o["own"])
+            t_in = [t for t in o["tiles"] if inbox(t)]
+            t_out = [t for t in o["tiles"] if not inbox(t)]
+            if own_in:
+                pieces.append(made(o, own_in, t_in, pick(o["art"]), {k: v for k, v in o["fill"].items() if inbox(tile_of(k))},
+                                   pick(o["shadow"]), o["runs"]))
+            if own_out:
+                rest.append(made(o, own_out, t_out, o["art"] - pick(o["art"]), {k: v for k, v in o["fill"].items() if not inbox(tile_of(k))},
+                                 o["shadow"] - pick(o["shadow"]), o["runs"]))
+        if not pieces:
+            out = rest
+            continue
+        own = set().union(*(o["own"] for o in pieces))
+        if not own:
+            out = rest
+            continue
+        first = min(pieces, key=lambda o: rank.get(o["kind"], 9))
+        merged = made(first, own, [t for o in pieces for t in o["tiles"]], set().union(*(o["art"] for o in pieces)),
+                      {k: v for o in pieces for k, v in o["fill"].items()}, set().union(*(o["shadow"] for o in pieces)),
+                      [r for o in pieces for r in o["runs"]])
+        out = rest + [merged]
     return out
-
 
 def _front_rows(info, obj):
     """How many of a thing's own rows are its front, as the GBA draws it: from its foot up
@@ -1867,6 +1909,12 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
         part = voxel.Grid()
         if shape == "stairs":
             build_stairs(part, sprite, o, fix, owner)
+        elif shape == "stairwell":
+            # (its opening taken out of the floor)
+            for (x, z) in build_stairwell(part, sprite, o, fix, owner):
+                if grid.owner.get((x, -1, z)) == "floor":
+                    del grid.cubes[(x, -1, z)]
+                    del grid.owner[(x, -1, z)]
         elif shape == "escalator" or kind == "escalator":
             shape = "escalator"
             build_escalator(part, sprite, o, fix, owner)
@@ -1931,9 +1979,9 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                             part.set(x, y, z, colour, owner)
                             break
         for (x, y, z), c in part.cubes.items():
-            if shape not in ("escalator", "stairs") and z + yb < wall_z:
+            if shape not in ("escalator", "stairs", "stairwell") and z + yb < wall_z:
                 continue                              # (nothing behind the wall's face)
-            if shape in ("round", "slab", "escalator", "stairs"):
+            if shape in ("round", "slab", "escalator", "stairs", "stairwell"):
                 grid.set(x, y, z, c, owner)
             else:
                 grid.set(x, y + yb, z + yb, c, owner)
@@ -1942,7 +1990,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
     hex_ = lambda h: tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
     for k, o in enumerate(objs):
         fix = fix_for(sprite, o, fixes, g)
-        if o["kind"] in ("flat", "escalator") or fix.get("shape") in ("escalator", "stairs"):
+        if o["kind"] in ("flat", "escalator") or fix.get("shape") in ("escalator", "stairs", "stairwell"):
             continue
         if "round" in fix:
             voxel.round_corners(grid, "thing-%d" % k, int(fix["round"]))
@@ -2224,6 +2272,82 @@ def build_stairs(grid, sprite, o, fix, owner):
                 # (the balustrade along its front: the handrail's body, its top lit)
                 for y in range(h + 1, h + rail_h + 1):
                     grid.set(x, y, z_near - 1, light if y == h + rail_h else rail, owner)
+
+def build_stairwell(grid, sprite, o, fix, owner):
+    """Stairs down through the floor (the player's house's, upstairs), as the art draws
+    them: an `opening` in the floor ([x0, z0, x1, z1] from the thing's box's corner) down
+    which its steps go, each where its tread's back edge is drawn (a step every few
+    columns, a dark riser between, each as much lower as it's drawn), its treads as drawn,
+    the void below them grey; a shaft round it; its handrails (`rails`: the `left` columns
+    and the `front` rows, `height` cubes up) white on balusters where they're drawn.
+    Returns the floor's cells it opens: {(x, z)}."""
+    own = o["own"]
+    bx, by = o["bbox"][0], o["bbox"][1]
+    ox0, oz0, ox1, oz1 = fix["opening"]
+    x0, z0, x1, z1 = bx + ox0, by + oz0, bx + ox1, by + oz1
+    col = lambda x, v: sprite.colour(x, v)
+    from .voxel import _darkest as darkest_of
+    dark = darkest_of(sprite, own)
+    inside = Counter(col(x, v) for x in range(x0, x1 + 1) for v in range(z0, z1 + 1) if col(x, v) is not None)
+    void = max((c for c in inside if not _dark(c) and hsv(c)[1] < 0.15), key=lambda c: inside[c], default=(123, 123, 123))
+    # (each column's tread: its back edge the first row drawn other than the void down
+    # the opening; it lies as deep below the floor as it's drawn below the opening's back)
+    deepest = -2
+    tops = {}
+    for x in range(x0, x1 + 1):
+        v = next((v for v in range(z0, z1 + 1) if col(x, v) not in (None, void)), None)
+        if v is not None:
+            tops[x] = min(-2, z0 - 1 - v)
+            deepest = min(deepest, tops[x])
+    bottom = deepest - int(fix.get("below", 2))
+    for x in range(x0, x1 + 1):
+        h = tops.get(x, bottom)
+        for z in range(z0, z1 + 1):
+            for y in range(bottom, h + 1):
+                c = void
+                if x in tops and y == h:
+                    art = col(x, z - y - 1)
+                    c = art if art is not None and art != void and z - y - 1 <= z1 else col(x, z0 + (z0 - 1 - h) + 1) or void
+                    if c == void or c is None:
+                        c = col(x, z0 - 1 - h + 1) or void
+                elif x in tops:
+                    c = dark if _dark(col(x, z0 - 1 - h) or void) else void
+                grid.set(x, y, z, c, owner)
+    # (the shaft round it, below the floor)
+    for y in range(bottom, -1):
+        for x in range(x0 - 1, x1 + 2):
+            grid.set(x, y, z0 - 1, void, owner)
+            grid.set(x, y, z1 + 1, void, owner)
+        for z in range(z0, z1 + 1):
+            grid.set(x0 - 1, y, z, void, owner)
+            grid.set(x1 + 1, y, z, void, owner)
+    # (its handrails: white, on balusters where the art draws them under the front one)
+    rails = fix.get("rails", {})
+    height = int(rails.get("height", 4))
+    whites = [c for c, _ in Counter(sprite.colour(*p) for p in own).most_common() if not _dark(c) and hsv(c)[1] < 0.1 and sum(c) > 600]
+    white = whites[0] if whites else (255, 255, 255)
+    side = next((c for c, _ in Counter(sprite.colour(*p) for p in own).most_common()
+                 if not _dark(c) and hsv(c)[1] < 0.15 and c not in (white, void)), white)
+    lx0, lx1 = (bx + rails["left"][0], bx + rails["left"][1]) if "left" in rails else (None, None)
+    fz0, fz1 = (by + rails["front"][0], by + rails["front"][1]) if "front" in rails else (None, None)
+    foot_row = (fz1 if fz1 is not None else z1) + 1
+    post = {x for x in range(bx, o["bbox"][2]) if col(x, foot_row - 2) is not None and _dark(col(x, foot_row - 2))}
+    if lx0 is not None:
+        for x in range(lx0, lx1 + 1):
+            for z in range(z0 - 1, (fz1 if fz1 is not None else z1) + 1):
+                grid.set(x, height, z, white, owner)
+                if z in (z0 - 1, (fz1 if fz1 is not None else z1)) or (z - z0) % 7 == 0:
+                    for y in range(height):
+                        grid.set(x, y, z, side, owner)
+    if fz0 is not None:
+        for x in range(lx0 if lx0 is not None else x0, x1 + 1):
+            for z in range(fz0, fz1 + 1):
+                grid.set(x, height, z, white, owner)
+            if x in post:
+                for y in range(height):
+                    grid.set(x, y, fz1, side, owner)
+    return {(x, z) for x in range(x0, x1 + 1) for z in range(z0, z1 + 1)}
+
 
 def build_escalator(grid, sprite, o, fix, owner):
     """An escalator: steps between two glass balustrades, a handrail along the top of each,

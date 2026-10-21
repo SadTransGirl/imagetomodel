@@ -159,7 +159,11 @@ own `building_fixes.json` does:
   a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`, `plant`,
   `stairs` (a staircase up along the wall, as the player's house's: a step to each tread
   drawn, each as much higher as it's drawn, a balustrade with its handrail along its front
-  over its grey side panel, as high as the panel's drawn under its first step);
+  over its grey side panel, as high as the panel's drawn under its first step),
+  `stairwell` (stairs down through the floor, upstairs: its `opening` `[x0, z0, x1, z1]`
+  from its box's corner cut from the floor, its steps going down it where their treads
+  are drawn, a shaft round it, its white `rails` (`left` columns, `front` rows, `height`)
+  on balusters where they're drawn);
   `round_depth`: how deep a round thing is, against its width; `back_to_wall`.
 
 A **plant** (a potted palm) is built in three parts, each where the GBA draws it: its pot
@@ -300,8 +304,10 @@ with `--spec`: `{"wall_rows": 2, "tiles": {"9,6": "box", "7,2": "floor"}}`, wher
 may be `void`, `floor`, `wall`, `wall_side`, `thing`, or `box` (a thing standing tall) and
 `counter` (a thing standing free, low) to force its kind. A tile said to be `floor` that
 isn't the floor's colours is a rug: on it and beside it, a thing standing there (a table,
-a chair) is cut from the rug's colours as from the floor's. `"things": [[x0, y0, x1, y1]]`
-makes the things with tiles in each box one (a bed drawn over three rows of tiles).
+a chair) is cut from the rug's colours as from the floor's (each rug its own colours: those
+it's made of, not an outline). `"things": [[x0, y0, x1, y1]]` makes what's drawn in each
+box's tiles one thing: merged (a bed drawn over three rows of tiles), or split from a
+thing reaching past it (two chairs one behind the other, touching).
 
 What's written is as for a building, and besides: `NAME-labels.json` (the grid, the wall's
 rows, the labels, the things and the objects they make with their boxes), the per-thing
@@ -464,7 +470,7 @@ No Nintendo art is in this repository: the tests draw their own building.
 
 ## Next
 
-- rooms: the player's house's stairs down (a stairwell through the floor), a person standing in the screenshot
+- rooms: a person standing in the screenshot
   (masked out), water; more fixes for the things of other rooms;
 - buildings in true voxels too;
 - more roof styles read from the art: a ridge with two slopes (a gable), the eave that

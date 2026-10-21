@@ -213,3 +213,40 @@ def test_stairs_climb_a_step_to_each_tread_drawn():
         tops[x] = max(tops.get(x, -1), y)
     steps = [tops[10 + 4 * k + 2] for k in range(4)]
     assert all(b - a == 2 for a, b in zip(steps, steps[1:]))           # (2 higher a step, as drawn)
+
+
+def test_a_spec_box_splits_a_thing_with_tiles_past_it():
+    s, g, info = _labelled(spec={"wall_rows": 2})
+    whole = [o for o in room.objects(info, g, room.runs(info, g)) if any(t == (2, 3) for t in o["tiles"])][0]
+    assert any(t[0] > 2 for t in whole["tiles"])                       # (the counter, wider than a tile)
+    s, g, info = _labelled(spec={"wall_rows": 2, "things": [[2, 3, 2, 4]]})
+    objs = room.objects(info, g, room.runs(info, g))
+    mine = [o for o in objs if (2, 3) in o["tiles"]][0]
+    assert all(t[0] == 2 for t in mine["tiles"])
+    assert all(16 * 2 <= x < 16 * 3 for x, _ in mine["own"])
+    assert any(t[0] > 2 for o in objs for t in o["tiles"] if o is not mine and t[1] in (3, 4))
+
+
+def test_a_stairwell_opens_the_floor_and_steps_down_it():
+    from imagetomodel import voxel
+    void, tread, dark, white = (123, 123, 123), (213, 197, 106), (82, 82, 106), (255, 255, 255)
+    px = {}
+    for x in range(0, 24):
+        for v in range(0, 20):
+            px[(x, v)] = void
+    # (3 steps from the right, each drawn 2 rows lower to the left)
+    for k in range(3):
+        for x in range(20 - 4 * k, 24 - 4 * k):
+            for v in range(3 + 2 * k, 20):
+                px[(x, v)] = dark if x == 20 - 4 * k else tread
+    for x in range(0, 24):
+        for v in (20, 21):
+            px[(x, v)] = white
+    pic = _Pic(px)
+    o = {"own": set(px), "bbox": [0, 0, 24, 22]}
+    grid = voxel.Grid()
+    opened = room.build_stairwell(grid, pic, o, {"opening": [0, 0, 23, 19], "rails": {"front": [20, 21], "height": 3}}, "t")
+    assert (10, 5) in opened and len(opened) == 24 * 20
+    tops = {x: max(y for (xx, y, z) in grid.cubes if xx == x and z == 10 and y < 0) for x in (22, 18, 14)}
+    assert tops[22] > tops[18] > tops[14]                                  # (down to the left)
+    assert all(y < 0 for (x, y, z) in grid.cubes if 0 <= z <= 19 and 0 <= x <= 23)
