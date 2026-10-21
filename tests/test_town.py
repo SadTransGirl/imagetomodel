@@ -126,3 +126,15 @@ def test_a_roofs_ends_come_down_as_far_as_their_eave_is_drawn_lower():
             return (eave[i] if 0 <= i < 3 else GRASS) + (255,)
     own = {(x, v) for x in range(12) for v in range(12)}
     assert town.roof_drops(Pic(), own, 6, 3) == drop
+
+
+def test_a_trees_shadow_is_a_little_oval_under_its_trunk():
+    tree = {(x, v): (90, 60, 40) for x in (7, 8) for v in range(10, 14)}       # (its trunk)
+    drawn = {(x, 13): c for x, c in zip(range(16), [(20, 160, 100)] * 2 + [(50, 140, 50)] * 12 + [(20, 160, 100)] * 2)}
+    drawn[(8, 12)] = (50, 90, 20)
+    sh = town.round_shadow(tree, drawn)
+    xs = [x for x, _ in sh]
+    zs = [z for _, z in sh]
+    assert (8, 12) in sh and sh[(8, 12)] == (50, 90, 20)                   # (its darkest under the trunk)
+    assert max(xs) - min(xs) > max(zs) - min(zs)                            # (wider than deep)
+    assert abs((max(xs) + min(xs)) / 2.0 - 8) <= 1

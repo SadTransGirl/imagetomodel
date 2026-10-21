@@ -2,34 +2,17 @@
   "_comment": "Things of the towns set by hand, by fingerprint (imagetomodel town writes each thing's in NAME-labels.json); the keys as rooms.json's.",
   "ed62dfd03f98": {
     "name": "Professor Oak's lab",
-    "parts": [
+    "boxes": [
       {
+        "cols": [
+          80,
+          103
+        ],
         "rows": [
-          3,
+          1,
           30
         ],
-        "cols": [
-          79,
-          102
-        ],
-        "profile": [
-          [
-            "up",
-            40
-          ],
-          [
-            "back",
-            3
-          ],
-          [
-            "up",
-            19
-          ],
-          [
-            "back",
-            "rest"
-          ]
-        ]
+        "height": 4
       }
     ]
   },

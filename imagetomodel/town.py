@@ -113,10 +113,12 @@ class Town:
         has_pines = any(pine(x, y, PINES) for y in range(self.H) for x in range(self.W))
         grass = self.grass() if has_pines else set()
         model = self.pine_picture(grass) if has_pines else {}
+        shadow = getattr(self, "pine_shadow", {})
 
         def place(x, y):
             out.append({"class": "tree", "model": "pine", "tiles": [(x, y), (x + 1, y)],
-                        "picture": {(x * PX + px, y * PX + py): c for (px, py), c in model.items()}})
+                        "picture": {(x * PX + px, y * PX + py): c for (px, py), c in model.items()},
+                        "shadow": {(x * PX + px, y * PX + py): c for (px, py), c in shadow.items()}})
         for y in range(self.H):
             for x in range(self.W - 1):
                 if not (pine(x, y, PINE_BODIES) and m.grid[y][x] % 2 == 0 and pine(x + 1, y, PINE_BODIES)):
@@ -204,7 +206,7 @@ class Town:
     def pine_picture(self, grass):
         """The pine, as one tree: {(x, y): colour} from its body's top left, its tip (a tip
         tile's top layer) the cell above, its foot (a foot tile) the cell below, less the
-        grass round it."""
+        grass round it (its shadow on the grass: self.pine_shadow, the same way)."""
         m = self.map
         pic = {}
         for i in (0, 1):
@@ -212,7 +214,8 @@ class Town:
             self._paint(pic, i, -1, tip, lambda a, b: True, grass)
             self._paint(pic, i, 0, self.decomp.metatile(m, 0x1C + i)[0], lambda a, b: True, grass)
             self._paint(pic, i, 1, self.decomp.metatile(m, 0x24 + i)[0], lambda a, b: True, grass)
-        return clean_tree(pic)
+        self.pine_shadow = {}
+        return clean_tree(pic, self.pine_shadow)
 
     def _paint(self, picture, tx, ty, im, keep, grass):
         """A tile's pixels (those `keep(i, j)` says, not the grass's) into a tree's picture at
@@ -331,6 +334,86 @@ def square_walls(part, sprite, own, kinds, shown, owner):
                 part.set(x, y, z, c, owner)
 
 
+def roof_box(sprite, own, kinds, x0, y0, spec):
+    """Something standing on a flat roof (Oak's lab's chimney, `{"cols": [a, b], "rows":
+    [c, d], "height": n}` in a fix's "boxes", from the thing's top left), made a box: the
+    roof under it and round it (what the GBA draws of it there, its shadow) its roof's
+    pattern carried on, across from either side; the thing (what's there in colours the
+    roof doesn't have, its outline round them and what that shuts in) the box's top.
+    Returns ({pixel: the roof's colour there}, {the box's top pixels})."""
+    (ca, cb), (ra, rb) = spec["cols"], spec["rows"]
+    hole = {(x, v) for (x, v) in own if ca <= x - x0 <= cb and ra <= v - y0 <= rb}
+    roof = [(x, v) for (x, v) in own if kinds(x, v) != "up" and (x, v) not in hole]
+    if not hole or not roof:
+        return {}, set()
+    col = lambda p: sprite.colour(*p)[:3]
+    roof_colours = {col(p) for p in roof}
+    # (the roof's pattern across: the shortest step it repeats in along a row)
+    mine = set(roof)
+    score = {}
+    for step in range(2, 33):
+        pairs = [(p, (p[0] + step, p[1])) for p in roof if (p[0] + step, p[1]) in mine]
+        if pairs:
+            score[step] = sum(1 for a, b in pairs if col(a) == col(b)) / float(len(pairs))
+    best = max(score.values()) if score else 0
+    step = min(k for k, sc in score.items() if sc >= best - 0.02) if score else 8
+    under = {}
+    for (x, v) in hole:
+        for k in range(1, 64):
+            q = next((q for q in ((x - k * step, v), (x + k * step, v)) if q in mine), None)
+            if q:
+                under[(x, v)] = col(q)
+                break
+    # (the thing: its colours (not a run of them along the region's edge: the roof's rim lit
+    # behind it), the outline round them, what that outline shuts in)
+    edge = lambda p: [(p[0] + 1, p[1]), (p[0] - 1, p[1]), (p[0], p[1] + 1), (p[0], p[1] - 1)]
+    border = lambda p: not (ca < p[0] - x0 < cb and ra < p[1] - y0 < rb)
+    thing = set()
+    left = {p for p in hole if col(p) not in roof_colours}
+    while left:
+        part = {left.pop()}
+        todo = list(part)
+        while todo:
+            for q in edge(todo.pop()):
+                if q in left:
+                    left.discard(q)
+                    part.add(q)
+                    todo.append(q)
+        if not any(border(q) for q in part):
+            thing |= part
+    thing |= {p for p in hole if any(q in thing for q in edge(p)) and voxel._dark(col(p))}
+    rest = hole - thing
+    reached = {p for p in rest if any(q not in hole for q in edge(p))}
+    todo = list(reached)
+    while todo:
+        for q in edge(todo.pop()):
+            if q in rest and q not in reached:
+                reached.add(q)
+                todo.append(q)
+    thing |= rest - reached
+    return under, thing
+
+
+def stand_box(part, sprite, top, shown, owner, spec):
+    """A box `height` cubes (4) on a roof where its picture `top` lies: its top the
+    picture, its sides its side's colour (`side`, else the commonest of its picture's
+    colours down its edges but its outline)."""
+    height = int(spec.get("height", 4))
+    col = lambda p: sprite.colour(*p)[:3]
+    if "side" in spec:
+        side = tuple(int(spec["side"][i:i + 2], 16) for i in (0, 2, 4))
+    else:
+        xs = [x for x, _ in top]
+        edges = Counter(col(p) for p in top if p[0] in (min(xs) + 1, max(xs) - 1) and not voxel._dark(col(p)))
+        side = edges.most_common(1)[0][0] if edges else col(next(iter(top)))
+    for p in top:
+        if p not in shown:
+            continue
+        y, z = shown[p]
+        for k in range(1, height + 1):
+            part.set(p[0], y + k, z, col(p) if k == height else side, owner)
+
+
 def roof_drops(sprite, own, split, hip):
     """How far a roof's ends come down, as the GBA draws them: {x: rows} for each column
     within `hip` of either end, by how much lower its eave is drawn than the middle's (the
@@ -397,16 +480,17 @@ def deepen(part, sprite, own, kinds, owner, factor):
     """A building `factor` times as deep as the GBA draws it, its roof's pattern carried on
     (whole tiles of it, so they stay square, where the stretch of a row at a time draws
     every other row twice): where its roof is plainest, near its middle, as many layers as
-    its pattern repeats in, again and again, everything behind moved back."""
+    its pattern repeats in, again and again, everything behind moved back. Returns (the z
+    cut at, how far behind it moved back), or None."""
     lying = [(x, v) for (x, v) in own if kinds(x, v) != "up"]
     if not lying or factor <= 1:
-        return
+        return None
     x0, x1 = min(x for x, _ in lying), max(x for x, _ in lying)
     v0, v1 = min(v for _, v in lying), max(v for _, v in lying)
     rows = [[sprite.colour(x, v)[:3] if (x, v) in own else None for x in range(x0, x1 + 1)] for v in range(v0, v1 + 1)]
     p = period(rows)
     if not p:
-        return
+        return None
     extra = p * max(1, int(round((factor - 1) * len(rows) / float(p))))
     tops = {}
     for (x, y, z) in part.cubes:
@@ -416,11 +500,11 @@ def deepen(part, sprite, own, kinds, owner, factor):
     plain = {z for z in zs if all(tops.get((x, z), -1) <= level for x in range(x0, x1 + 1))}
     roof = [z for z in zs if sum(1 for x in range(x0, x1 + 1) if tops.get((x, z)) == level) > (x1 - x0) // 2]
     if not roof:
-        return
+        return None
     mid = (roof[0] + roof[-1]) / 2.0
     cuts = [z for z in roof if all(z + i in plain for i in range(p))]
     if not cuts:
-        return
+        return None
     cut = min(cuts, key=lambda z: abs(z + p / 2.0 - mid))
     # (behind the cut moved back; the layers in front of it, cut to cut + p, again behind it)
     moved = {}
@@ -436,6 +520,7 @@ def deepen(part, sprite, own, kinds, owner, factor):
     part.owner = {}
     for key, c in moved.items():
         part.set(*key, c, owner)
+    return cut, extra
 
 
 def outline_colour(sprite, own):
@@ -534,11 +619,13 @@ def fingerprint(town, t):
     return room.fingerprint(town.sprite, t)
 
 
-def clean_tree(pic):
+def clean_tree(pic, shadow=None):
     """A tree's picture without what the GBA draws round it: the glow round its edge (a
     colour only on its edge), its outline (its darkest colour, where it meets the outside),
     and its shadow on the ground (below its crown's last light row, all but its trunk, the
-    trunk carried up to the crown)."""
+    trunk carried up to the crown). `shadow`, a dict, is given its shadow made round (from
+    what's taken away below its crown), to lie on the ground."""
+    raw = pic
     pic = dict(pic)
     edge = lambda p: any((p[0] + dx, p[1] + dy) not in pic for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
     lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
@@ -566,7 +653,34 @@ def clean_tree(pic):
             for x in xs:
                 for y in range(crown + 1, top):
                     pic[(x, y)] = core
+        if shadow is not None:
+            shadow.update(round_shadow(pic, {p: c for p, c in raw.items() if p[1] > crown and p not in pic}))
     return pic
+
+
+def round_shadow(tree, drawn, size=0.75):
+    """A tree's shadow on the ground, a little round one under its trunk: as wide as
+    `size` of the shadow drawn round it, half as deep as wide (as the GBA draws it, an
+    oval), in its colours: its darkest in the middle, its lightest round its edge."""
+    if not drawn or not tree:
+        return {}
+    lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    foot = max(v for _, v in tree)
+    xs = [x for x, v in tree if v == foot]
+    cx = (min(xs) + max(xs)) / 2.0
+    cz = foot - 1.0                                     # (the trunk's middle, its billboard 3 deep)
+    rx = size * (max(x for x, _ in drawn) - min(x for x, _ in drawn) + 1) / 2.0
+    rz = rx / 2.0
+    tones = sorted({c for c in drawn.values()}, key=lum)
+    core, edge = tones[0], tones[-1]
+    mid = Counter(drawn.values()).most_common(1)[0][0] if len(tones) > 2 else core
+    out = {}
+    for x in range(int(cx - rx) - 1, int(cx + rx) + 2):
+        for z in range(int(cz - rz) - 1, int(cz + rz) + 2):
+            d = ((x + 0.5 - cx - 0.5) / rx) ** 2 + ((z - cz) / rz) ** 2
+            if d <= 1:
+                out[(x, z)] = core if d < 0.35 else mid if d < 0.75 else edge
+    return out
 
 
 def _petal(r, g, b):
@@ -629,6 +743,11 @@ def build_voxels(town, fixes=None, outlines=True):
                         grid.set(px, -2, py - 1, c, "water")          # (sunk a cube, along the line of sight)
                     else:
                         grid.set(px, -1, py, c, "ground")
+    # (a tree's shadow on the grass under it, a little round one, where the GBA draws it)
+    for t in town.things:
+        for (px, py), c in t.get("shadow", {}).items():
+            if 0 <= px < town.W * PX and 0 <= py < town.H * PX and grid.owner.get((px, -1, py)) == "ground":
+                grid.set(px, -1, py, c, "ground")
     # the things
     turned = {}
     for k, t in enumerate(town.things):
@@ -692,18 +811,32 @@ def build_voxels(town, fixes=None, outlines=True):
                 rest -= pix
                 groups.append((pix, voxel.segments_kinds(prt["profile"], o["bbox"][3])))
             groups.append((rest, kinds))
+            # (what stands on its roof made a box, the roof's pattern carried on under it)
+            under, boxes = {}, []
+            for spec in fix.get("boxes", []):
+                u, top = roof_box(s, own, kinds, x0, y0, spec)
+                under.update(u)
+                boxes.append((spec, top))
             shown = {}
             for pix, kd in groups:
                 if pix:
                     shown.update(voxel.unproject_profile(part, s, pix, kd, owner=owner, recess=room.fix_recess(o, fix),
                                                          raised=room.fix_raised(s, o, fix), stretch=stretch,
-                                                         foot=o["bbox"][3], inset=inset))
+                                                         foot=o["bbox"][3], inset=inset, colours=under or None))
             if building:
                 square_walls(part, s, own, kinds, shown, owner)
+            cut = None
             if hipped:
                 roof_ends(part, owner, drops)
             elif building:
-                deepen(part, s, own, kinds, owner, float(fix.get("deepen", BUILDING_STRETCH)))
+                cut = deepen(part, s, own, kinds, owner, float(fix.get("deepen", BUILDING_STRETCH)))
+            # (then what stands on its roof, moved back with its back if it's behind the cut)
+            for spec, top in boxes:
+                if cut and top:
+                    back = min(shown[p][1] for p in top if p in shown)
+                    if back < cut[0]:
+                        shown = {p: ((y, z - cut[1]) if p in top else (y, z)) for p, (y, z) in shown.items()}
+                stand_box(part, s, top, shown, owner, spec)
             if building and fix.get("wrap", True):
                 wrap_sides(part, s, own, kinds, shown, inset or {})
         for key, c in part.cubes.items():

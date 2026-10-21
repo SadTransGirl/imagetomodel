@@ -309,7 +309,8 @@ walked through. Nothing of the game's is kept: it's read from your copy.
   from a row of them overlapping or the variants that end one; placed at each tree's body
   (or below a tip whose body is past the map's edge), without what the GBA draws round
   it (the glow round its edge, its outline, its shadow on the ground: its trunk carried
-  up to its crown), standing facing the front as the GBA's sprites are, three cubes thick
+  up to its crown; its shadow lies on the ground under it instead, a little oval in its
+  colours), standing facing the front as the GBA's sprites are, three cubes thick
   (a billboard; `thick` in a fix, or `"shape": "round"` to turn it round);
 - **a fence** is a cell at a time, as the game draws it: the same post again; a fence, a
   sign and a mailbox stand facing the front too, three cubes thick;
@@ -326,8 +327,11 @@ walked through. Nothing of the game's is kept: it's read from your copy.
   carried round its sides and its back row by row (at each height its longest run of
   plain wall between its windows: its siding, its bricks; `"wrap": false` for none); its
   outline the colour its picture is outlined in (its silhouette's commonest dark colour);
-  something on its roof stands by its fix's `parts` (a region built by a profile of its
-  own: Oak's lab's chimney, in `fixes/towns.json`);
+  something on its roof is a box (its fix's `boxes`: `{"cols": [a, b], "rows": [c, d],
+  "height": n}` from its top left, Oak's lab's chimney in `fixes/towns.json`): its picture
+  the box's top, `height` cubes (4) over the roof, the roof's pattern carried on under it
+  and round it (over the shadow the GBA draws it), its sides its side's colour (`side`);
+  `parts` builds a region by a profile of its own instead;
 - **the flowers** drawn on the ground (a cell of ground with many bright petals) stand
   up, each its own thing (where its tile differs from the grass of its bottom layer: its
   leaves too), facing the front, two cubes thick.
