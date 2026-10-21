@@ -414,6 +414,46 @@ def stand_box(part, sprite, top, shown, owner, spec):
             part.set(p[0], y + k, z, col(p) if k == height else side, owner)
 
 
+def stand_chimney(part, sprite, top, shown, owner, spec):
+    """A chimney where its picture `top` lies on a roof, built as one is: square, `height`
+    cubes (11) tall, on a base `base` cubes (4) high that flares out `flare` cubes (3) round
+    it, its top a rim round a hollow `hollow` cubes (3) deep. Its foot where its picture's
+    lowest row is; in its picture's colours: the stack its commonest, the base the other,
+    the rim its lightest, the hollow its darkest."""
+    shown_top = [p for p in top if p in shown]
+    if not shown_top:
+        return
+    height, base = int(spec.get("height", 11)), int(spec.get("base", 4))
+    flare, hollow, rim = int(spec.get("flare", 3)), int(spec.get("hollow", 3)), int(spec.get("rim", 2))
+    lum = lambda c: 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+    counts = Counter(sprite.colour(*p)[:3] for p in top)
+    dark = min(counts, key=lum)
+    tones = [c for c, _ in counts.most_common() if c != dark]
+    body = tones[0] if tones else dark
+    light = max(tones, key=lum) if tones else body
+    flank = next((c for c in tones if c not in (body, light)), body)
+    xs = [x for x, _ in top]
+    x0, x1 = min(xs), max(xs)
+    foot = max(v for _, v in shown_top)
+    at = min((p for p in shown_top if p[1] == foot), key=lambda p: abs(p[0] - (x0 + x1) / 2.0))
+    y0, zf = shown[at][0] + 1, shown[at][1]
+    width = x1 - x0 + 1
+    z0 = zf - width + 1                                 # (square: as deep as it's wide)
+    inner = flare + rim
+    for k in range(height):
+        i = int(round(flare * k / float(base))) if k < base else flare
+        for x in range(x0 + i, x1 - i + 1):
+            for z in range(z0 + i, zf - i + 1):
+                hole = x0 + inner <= x <= x1 - inner and z0 + inner <= z <= zf - inner
+                if hole and k >= height - hollow:
+                    continue                            # (its hollow)
+                if k == height - 1 or (hole and k == height - hollow - 1):
+                    c = light if not hole else dark     # (its rim; the hollow's floor)
+                else:
+                    c = flank if k < base else body
+                part.set(x, y0 + k, z, c, owner)
+
+
 def roof_drops(sprite, own, split, hip):
     """How far a roof's ends come down, as the GBA draws them: {x: rows} for each column
     within `hip` of either end, by how much lower its eave is drawn than the middle's (the
@@ -836,7 +876,7 @@ def build_voxels(town, fixes=None, outlines=True):
                     back = min(shown[p][1] for p in top if p in shown)
                     if back < cut[0]:
                         shown = {p: ((y, z - cut[1]) if p in top else (y, z)) for p, (y, z) in shown.items()}
-                stand_box(part, s, top, shown, owner, spec)
+                (stand_chimney if spec.get("shape") == "chimney" else stand_box)(part, s, top, shown, owner, spec)
             if building and fix.get("wrap", True):
                 wrap_sides(part, s, own, kinds, shown, inset or {})
         for key, c in part.cubes.items():

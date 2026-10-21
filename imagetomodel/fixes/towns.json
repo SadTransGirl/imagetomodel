@@ -12,7 +12,10 @@
           1,
           30
         ],
-        "height": 4
+        "height": 15,
+        "shape": "chimney",
+        "base": 4,
+        "flare": 3
       }
     ]
   },

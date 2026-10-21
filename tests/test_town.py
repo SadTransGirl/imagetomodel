@@ -138,3 +138,19 @@ def test_a_trees_shadow_is_a_little_oval_under_its_trunk():
     assert (8, 12) in sh and sh[(8, 12)] == (50, 90, 20)                   # (its darkest under the trunk)
     assert max(xs) - min(xs) > max(zs) - min(zs)                            # (wider than deep)
     assert abs((max(xs) + min(xs)) / 2.0 - 8) <= 1
+
+
+def test_a_chimney_is_square_and_straight_on_a_wider_base():
+    class Pic:
+        def colour(self, x, v):
+            return (ROOF if x in (0, 10) else WALL if v < 3 else (140, 60, 80)) + (255,)
+    top = {(x, v) for x in range(11) for v in range(10)}
+    shown = {(x, v): (0, 20 - (9 - v)) for (x, v) in top}         # (lying on a roof at y 0)
+    part = voxel.Grid()
+    town.stand_chimney(part, Pic(), top, shown, "t", {"height": 8, "base": 2, "flare": 2, "hollow": 2, "rim": 1})
+    layer = lambda y: {(x, z) for (x, yy, z) in part.cubes if yy == y}
+    span = lambda cells, i: max(c[i] for c in cells) - min(c[i] for c in cells) + 1
+    assert span(layer(1), 0) == span(layer(1), 1) == 11                     # (its base: square, widest)
+    assert span(layer(5), 0) == span(layer(5), 1) == 7                      # (its stack: square, narrower)
+    assert span(layer(3), 0) == span(layer(6), 0)                           # (straight up)
+    assert (5, 8, 15) not in part.cubes and (5, 6, 15) in part.cubes       # (hollow at its top)

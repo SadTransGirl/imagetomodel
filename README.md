@@ -331,6 +331,10 @@ walked through. Nothing of the game's is kept: it's read from your copy.
   "height": n}` from its top left, Oak's lab's chimney in `fixes/towns.json`): its picture
   the box's top, `height` cubes (4) over the roof, the roof's pattern carried on under it
   and round it (over the shadow the GBA draws it), its sides its side's colour (`side`);
+  `"shape": "chimney"` makes it a chimney, built as one is (the lab's): square, `height`
+  cubes (11) tall, straight up from a base `base` cubes (4) high flaring out `flare`
+  cubes (3) round it, a rim round a hollow `hollow` cubes (3) deep at its top, in its
+  picture's colours;
   `parts` builds a region by a profile of its own instead;
 - **the flowers** drawn on the ground (a cell of ground with many bright petals) stand
   up, each its own thing (where its tile differs from the grass of its bottom layer: its
