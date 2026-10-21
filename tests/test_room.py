@@ -250,3 +250,52 @@ def test_a_stairwell_opens_the_floor_and_steps_down_it():
     tops = {x: max(y for (xx, y, z) in grid.cubes if xx == x and z == 10 and y < 0) for x in (22, 18, 14)}
     assert tops[22] > tops[18] > tops[14]                                  # (down to the left)
     assert all(y < 0 for (x, y, z) in grid.cubes if 0 <= z <= 19 and 0 <= x <= 23)
+
+
+def test_a_fix_the_same_as_anothers_is_that_ones_but_what_it_says():
+    s, g, info = _labelled()
+    o = room.objects(info, g, room.runs(info, g))[0]
+    first = "%d,%d" % (o["columns"][0], o["rows"][0])
+    fixes = {"palm": {"name": "Potted palm", "shape": "plant", "thick": 3},
+             first: {"name": "The same palm, upstairs", "same_as": "palm"}}
+    fix = room.fix_for(s, o, fixes, g)
+    assert fix["shape"] == "plant" and fix["thick"] == 3 and fix["name"] == "The same palm, upstairs"
+
+
+def test_the_floor_under_a_thing_is_what_the_game_draws_under_it():
+    from types import SimpleNamespace
+    wood, rug, bed = (164, 148, 49), (106, 197, 106), (255, 255, 255)
+    shot = np.zeros((48, 48, 4), dtype=np.uint8)
+    shot[:, :, :3] = wood
+    shot[:, :, 3] = 255
+    bottom = np.zeros((48, 48, 3), dtype=int)
+    bottom[:, :] = wood
+    bottom[16:32, 16:32] = bed                                   # (a bed drawn on the bottom layer)
+    bottom[16:32, 32:48] = rug                                   # (a chair's cell: the rug under it)
+    info = {"bottom": bottom, "sprite": SimpleNamespace(rgba=shot), "labels": [["floor", "floor", "floor"],
+            ["floor", "thing", "thing"], ["floor", "floor", "floor"]], "rug": {(2, 1): {rug}}}
+    objs = [{"kind": "free", "tiles": [(1, 1)], "own": set()}, {"kind": "free", "tiles": [(2, 1)], "own": set()}]
+    got = room.floor_beneath(info, {"ox": 0, "oy": 0}, objs, {wood})
+    assert got[(2, 1)][5][5] == rug                               # (its own bottom layer)
+    assert got[(1, 1)][5][5] == wood                              # (the bed's: the boards round it)
+
+
+def test_stairs_climb_to_the_floor_above_if_told():
+    from imagetomodel import voxel
+    dark, tread, side = (82, 82, 106), (213, 197, 106), (180, 180, 164)
+    px = {}
+    for k in range(4):
+        x0, top = 10 + 4 * k, 10 - 2 * k
+        for x in range(x0, x0 + 4):
+            for y in range(top, 21):
+                px[(x, y)] = dark if x == x0 else tread
+    for x in range(10, 14):
+        for y in range(21, 24):
+            px[(x, y)] = side
+    pic = _Pic(px)
+    own = set(px)
+    o = {"own": own, "bbox": [min(p[0] for p in own), min(p[1] for p in own), max(p[0] for p in own) + 1, max(p[1] for p in own) + 1]}
+    grid = voxel.Grid()
+    room.build_stairs(grid, pic, o, {"to": 20, "rail": 0}, "t")
+    top = max(y for (x, y, z) in grid.cubes if x == 23)
+    assert top == 20

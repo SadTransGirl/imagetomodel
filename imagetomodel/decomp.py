@@ -216,3 +216,17 @@ def on_screen(decomp, m, rgb, ox=0, oy=0):
                         out[(x, y)] = c
         return out
     return cells, changed
+
+
+def bottoms_on_screen(decomp, m, cells, shape, ox=0, oy=0):
+    """The map's bottom layers where a shot shows its cells ({shot's cell: metatile}, from
+    on_screen): what's under what its top layers draw (the floor under a table, the rug
+    under a chair), HxWx3, -1 where it isn't known."""
+    import numpy as np
+    out = np.full((shape[0], shape[1], 3), -1, dtype=int)
+    for (cx, cy), mid in cells.items():
+        b = np.asarray(decomp.bottom(m, mid)).astype(int)
+        y0, x0 = oy + cy * 16, ox + cx * 16
+        if y0 + 16 <= shape[0] and x0 + 16 <= shape[1]:
+            out[y0:y0 + 16, x0:x0 + 16] = np.where(b[:, :, 3:] > 0, b[:, :, :3], -1)
+    return out

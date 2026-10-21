@@ -284,6 +284,7 @@ def label(sprite, g, spec=None):
     # thing standing on it is cut from it as from the floor; not elsewhere (a plant's leaves
     # may be its greens))
     rug = {}
+    rug_boxes = []
     left = set(said_floor)
     while left:
         # (each rug its own colours: those it's made of (1% of it or more), not an
@@ -302,13 +303,15 @@ def label(sprite, g, spec=None):
             made.update(counts[k])
         total = sum(made.values()) or 1
         rug_colours = {c for c, n in made.items() if n >= 0.01 * total and not _dark(c) and not _alike(c, floor_colours)}
+        if rug_colours:
+            rug_boxes.append([min(x for x, _ in patch), min(y for _, y in patch), max(x for x, _ in patch), max(y for _, y in patch)])
         for (x, y) in patch:
             for dy in (-1, 0, 1):
                 for dx in (-1, 0, 1):
                     rug.setdefault((x + dx, y + dy), set()).update(rug_colours)
     return {"_oy": oy, "labels": labels, "wall_first": first, "wall_rows": wall_rows,
             "floor_colours": ["%02x%02x%02x" % c for c in sorted(floor_colours)],
-            "rug": rug, "groups": [list(r) for r in (spec.get("things") or [])],
+            "rug": rug, "rug_boxes": rug_boxes, "groups": [list(r) for r in (spec.get("things") or [])],
             "wall_colours": ["%02x%02x%02x" % c for c in sorted(wall_colours)],
             "plain_wall": list(plain_wall) if plain_wall else None, "counts": counts, "forced": forced,
             "sprite": spr, "floor_share": floor_share, "plain_wall_rows": plain_wall_rows, "made_up_wall": made_up,
@@ -1680,7 +1683,17 @@ def load_fixes(paths=(), spec=None):
 
 
 def fix_for(sprite, o, fixes, g=None):
-    return fixes.get(fingerprint(sprite, o, g)) or fixes.get("%d,%d" % (o["columns"][0], o["rows"][0])) or {}
+    """A thing's fix, by its fingerprint (or its first tile); one that's `same_as` another
+    thing's (the same thing drawn on another floor: the Center's palm in the player's house)
+    is that one's, but for what it says itself."""
+    fix = fixes.get(fingerprint(sprite, o, g)) or fixes.get("%d,%d" % (o["columns"][0], o["rows"][0])) or {}
+    seen = set()
+    while "same_as" in fix and fix["same_as"] not in seen:
+        seen.add(fix["same_as"])
+        base = dict(fixes.get(fix["same_as"], {}))
+        base.update({k: v for k, v in fix.items() if k != "same_as"})
+        fix = base
+    return fix
 
 
 def fix_recess(o, fix):
@@ -1734,6 +1747,97 @@ def fix_included(sprite, o, fix):
     return out
 
 
+def floor_beneath(info, g, objs, floor_colours, extra=None):
+    """Given the game's data (info["bottom"]: its cells' bottom layers), the floor under each
+    tile a thing stands on (not one lying flat: a mat): {(tx, ty): 16 rows of 16 colours}.
+    The cell's own bottom layer where it's floor (the rug under a chair, the boards under a
+    plant); where the thing's drawn there too (a bed, the stairs), a cell's near it, of what's
+    round it most (the rug, the boards), at the same place in the boards' pattern if one is."""
+    bottom = info["bottom"]
+    ox, oy = g["ox"], g["oy"]
+    rug = set().union(*info.get("rug", {}).values()) if info.get("rug") else set()
+
+    def cell(tx, ty):
+        a = bottom[oy + ty * PX:oy + ty * PX + PX, ox + tx * PX:ox + tx * PX + PX]
+        if a.shape[:2] != (PX, PX) or (a < 0).any():
+            return None
+        return [[tuple(int(k) for k in a[j, i]) for i in range(PX)] for j in range(PX)]
+
+    def drawn(tx, ty):
+        # (a cell nothing stands on, as drawn: both its layers (a rug's border on its top))
+        a = info["sprite"].rgba[oy + ty * PX:oy + ty * PX + PX, ox + tx * PX:ox + tx * PX + PX]
+        if a.shape[:2] != (PX, PX) or (a[:, :, 3] == 0).any():
+            return None
+        return [[tuple(int(k) for k in a[j, i, :3]) for i in range(PX)] for j in range(PX)]
+
+    labels = info["labels"]
+
+    fl = list(floor_colours)
+    seen = {}
+
+    def is_floor(c):
+        # (the floor's own colours, as near as an emulator rounds them: a bottom layer's are
+        # the palette's, no glow on them)
+        if c not in seen:
+            seen[c] = any(sum(abs(c[k] - f[k]) for k in range(3)) <= 6 for f in fl)
+        return seen[c]
+
+    def kind(px, at_least=0.97):
+        cs = [c for row in px for c in row]
+        on_rug = sum(1 for c in cs if c in rug)
+        floor = sum(1 for c in cs if is_floor(c))
+        if on_rug + floor < at_least * len(cs):
+            return None
+        return "rug" if on_rug > 0.05 * len(cs) else "floor"
+    tiles = {tuple(t) for o in objs if o["kind"] != "flat" for t in o["tiles"]}
+    tiles |= {((x - ox) // PX, (y - oy) // PX) for o in objs if o["kind"] != "flat" for (x, y) in o["own"]}
+    tiles |= {((x - ox) // PX, (y - oy) // PX) for o, more in zip(objs, extra or []) if o["kind"] != "flat" for (x, y) in more}
+    tiles = {t for t in tiles if 0 <= t[1] < len(info["labels"]) and 0 <= t[0] < len(info["labels"][0])
+             and info["labels"][t[1]][t[0]] in ("floor", "thing")}
+    out = {}
+    for (tx, ty) in tiles:
+        px = cell(tx, ty)
+        if px is not None and kind(px):
+            out[(tx, ty)] = px
+            continue
+        # (on a rug (in the box of what the spec says is floor there): the rug, from its own
+        # row where it's the rug's edge across, its own column down, so its border runs on;
+        # else mostly floor itself, a thing drawn over a corner of it: its own kind)
+        box = next((b for b in info.get("rug_boxes", []) if b[0] <= tx <= b[2] and b[1] <= ty <= b[3]), None)
+        if box:
+            same = [(q, drawn(*q)) for q in [(x, ty) for x in range(box[0], box[2] + 1)] if ty in (box[1], box[3])] or \
+                   [(q, drawn(*q)) for q in [(tx, y) for y in range(box[1], box[3] + 1)] if tx in (box[0], box[2])] or \
+                   [(q, drawn(*q)) for q in [(x, y) for x in range(box[0] + 1, box[2]) for y in range(box[1] + 1, box[3])]]
+            same = [(q, qp) for q, qp in same if q not in tiles and qp is not None]
+            if same:
+                out[(tx, ty)] = min(same, key=lambda n: abs(n[0][0] - tx) + abs(n[0][1] - ty))[1]
+                continue
+        own_kind = kind(px, 0.5) if px is not None else None
+        for r in (1, 2, 3):
+            near = []
+            for dy in range(-r, r + 1):
+                for dx in range(-r, r + 1):
+                    q = (tx + dx, ty + dy)
+                    if q in tiles or max(abs(dx), abs(dy)) != r or not (0 <= q[1] < len(labels) and 0 <= q[0] < len(labels[0])) \
+                            or labels[q[1]][q[0]] not in ("floor", "thing"):
+                        continue
+                    qp = drawn(*q)
+                    k = kind(qp) if qp is not None else None
+                    if k:
+                        near.append((q, k, qp))
+            if own_kind:
+                near = [n for n in near if n[1] == own_kind]
+            if near:
+                kinds = Counter(k for _, k, _ in near)
+                k = kinds.most_common(1)[0][0]
+                same = [n for n in near if n[1] == k]
+                twin = [n for n in same if (n[0][0] - tx) % 2 == 0 and (n[0][1] - ty) % 2 == 0]
+                pick = min(twin or same, key=lambda n: abs(n[0][0] - tx) + abs(n[0][1] - ty))
+                out[(tx, ty)] = pick[2]
+                break
+    return out
+
+
 def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4, spec=None, thick=2, fixes=None, round_depth=0.5, outlines=True):
     """The room as cubes (voxel.Grid), owned by "floor", "wall", "side-left", "side-right"
     and "thing-N" (N an index into objects()). See voxel.py for how a sprite is unprojected.
@@ -1771,8 +1875,12 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
         c = row[r_rel % PX] if row else None
         return c or (200, 190, 170)
 
-    # the floor
+    # the floor (under a thing, what the game draws there under it, given its data: its
+    # cells' bottom layers)
     floor_tiles = [tuple(t) for t in info.get("floor_tiles", [])]
+    bottom = info.get("bottom")
+    beneath = floor_beneath(info, g, objs, floor_colours,
+                            [fix_included(sprite, o, fix_for(sprite, o, fixes, g)) for o in objs]) if bottom is not None else {}
 
     def under(tx, ty):
         x0, y0 = ox + tx * PX, oy + ty * PX
@@ -1797,7 +1905,9 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                     c = sprite.colour(x, v)
                     if c is None:
                         continue
-                    if (x, v) in covered:
+                    if (tx, ty) in beneath:
+                        c = beneath[(tx, ty)][j][i]          # (what the game draws under it)
+                    elif (x, v) in covered:
                         alt = alt or under(tx, ty)
                         c = sprite.colour(ox + alt[0] * PX + i, oy + alt[1] * PX + j) if alt else c
                     grid.set(x, -1, v, c, "floor")
@@ -1960,10 +2070,37 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                 xm = (x0_ + x1_) // 2
                 lying = sum(1 for v in range(o["bbox"][1], y1_) if (xm, v) in own_set and kinds(xm, v) == "back")
                 stretch = max(1.0, (x1_ - x0_) / float(lying)) if lying else 1.0
-            shown = voxel.unproject_profile(part, sprite, own_set, kinds, back_of=back_of, owner=owner,
+            # (its parts, each a region built by a profile of its own up from its own foot,
+            # lifted `lift` cubes along the line of sight (a PC on a desk, a stool under it);
+            # the rest by the thing's: from its common foot if it says `foot`, so a desk's
+            # apron stands over the space between its legs)
+            bx, by = o["bbox"][0], o["bbox"][1]
+            rest = set(own_set)
+            for prt in fix.get("parts", []):
+                rest -= {(x, v) for (x, v) in rest if prt["cols"][0] <= x - bx <= prt["cols"][1] and prt["rows"][0] <= v - by <= prt["rows"][1]}
+            shown = voxel.unproject_profile(part, sprite, rest, kinds, back_of=back_of, owner=owner,
                                             recess=recess_of(o, fix), raised=raised_of(o, fix),
                                             colours=None if fix.get("keep") else o.get("fill"),
-                                            stretch=stretch)
+                                            stretch=stretch, foot=o["bbox"][3] if fix.get("foot") else None)
+            # (open under it, between its legs: what's below `below` in those columns)
+            for op in fix.get("open", []):
+                for key in [q for q in part.cubes if op["cols"][0] <= q[0] - bx <= op["cols"][1] and q[1] < int(op["below"])]:
+                    del part.cubes[key]
+                    part.owner.pop(key, None)
+            rest = set(own_set)
+            for prt in fix.get("parts", []):
+                pix = {(x, v) for (x, v) in rest if prt["cols"][0] <= x - bx <= prt["cols"][1] and prt["rows"][0] <= v - by <= prt["rows"][1]}
+                rest -= pix
+                if not pix:
+                    continue
+                foot = by + int(prt["foot"]) + 1 if "foot" in prt else max(v for _, v in pix) + 1
+                tmp = voxel.Grid()
+                got = voxel.unproject_profile(tmp, sprite, pix, voxel.segments_kinds(prt["profile"], foot), owner=owner,
+                                              colours=None if fix.get("keep") else o.get("fill"), foot=foot)
+                lift = int(prt.get("lift", 0))
+                for (x, y, z), c in tmp.cubes.items():
+                    part.set(x, y + lift, z + lift, c, owner)
+                shown.update({q: (y + lift, z + lift) for q, (y, z) in got.items()})
             if u is not None:
                 under_cubes.setdefault(u, set()).update(shown)
             if k in paint:
@@ -2187,7 +2324,8 @@ def build_stairs(grid, sprite, o, fix, owner):
     every few columns (its riser a dark line, then its tread), each drawn higher than the
     last (it climbs as much), solid under; the tread's back edge (against the wall) its
     line and its highlight as drawn; along its front a balustrade, its handrail on top, over
-    its grey side panel, as high as the panel's drawn under its first step."""
+    its grey side panel, as high as the panel's drawn under its first step; its top step `to`
+    cubes up if it says (to the floor above)."""
     own = o["own"]
     x0, y0, x1, y1 = o["bbox"]
     col = lambda x, v: sprite.colour(x, v) if (x, v) in own else None
@@ -2241,9 +2379,14 @@ def build_stairs(grid, sprite, o, fix, owner):
     rail_h = int(fix.get("rail", 3))
     z_near = y1
     z_far = backs[order[0]] + h0 + 1
+    # (`to`: its top step that high, the rest spread evenly up to it: stairs to the floor
+    # above, not only as far as the picture shows them)
+    climb = {k: backs[order[0]] - backs[k] for k in order}
+    if "to" in fix and len(order) > 1:
+        climb = {k: int(round((int(fix["to"]) - h0) * n / float(len(order) - 1))) for n, k in enumerate(order)}
     for n, k in enumerate(order):
         st = steps[k]
-        h = h0 + (backs[order[0]] - backs[k])
+        h = h0 + climb[k]
         # (a step from its riser to the next's)
         lo = st[0] - 1 if rises_right else st[0]
         hi = st[-1] if rises_right else st[-1] + 1

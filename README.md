@@ -50,7 +50,11 @@ imagetomodel room --decomp LGFR3D/external/pokefirered --map PalletTown_PlayersH
 ```
 
 Without a screenshot, `--decomp` and `--map` draw the room from the game's own data (as
-the GBA draws it, `NAME-map.png`). `specs/` holds what the reader can't tell from the
+the GBA draws it, `NAME-map.png`). Given them, the floor under what stands in the room is
+what the game draws under it (its cells' bottom layers: the rug under a chair, the boards
+under a plant); where a thing's drawn on the bottom layer too (a bed, the stairs), a cell
+near it of what's round it (on a rug, from the rug's own row or column, so its border runs
+on; on the boards, at the same place in their pattern). `specs/` holds what the reader can't tell from the
 picture for the rooms done so far (the player's house's two floors): their wall's rows,
 their rugs, their tables and stairs, which tiles are one thing.
 
@@ -155,11 +159,20 @@ own `building_fixes.json` does:
   the bands its front wears running on round them;
 - `keep`: the holes closed in it keep the picture's colours (a tab the counter's colour,
   which would otherwise be taken for the counter);
+- `same_as`: another thing's fingerprint: this one is built by that one's fix (but what it
+  says itself), the same thing drawn on another floor (the player's house's plants are the
+  Center's potted palm);
+- `parts`: regions (`cols`, `rows` from its box's corner) built by a `profile` of their own
+  up from their own `foot` row, `lift`ed that many cubes along the line of sight (a PC on a
+  desk, a stool under it); `foot`: true builds the rest from the thing's common foot (a
+  desk's apron over the space between its legs); `open`: `cols` emptied `below` a height
+  (the space under a desk);
 - `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far
   a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`, `plant`,
   `stairs` (a staircase up along the wall, as the player's house's: a step to each tread
   drawn, each as much higher as it's drawn, a balustrade with its handrail along its front
-  over its grey side panel, as high as the panel's drawn under its first step),
+  over its grey side panel, as high as the panel's drawn under its first step; `to`: its top
+  step that high, to the floor above),
   `stairwell` (stairs down through the floor, upstairs: its `opening` `[x0, z0, x1, z1]`
   from its box's corner cut from the floor, its steps going down it where their treads
   are drawn, a shaft round it, its white `rails` (`left` columns, `front` rows, `height`)

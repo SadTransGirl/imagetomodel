@@ -590,7 +590,8 @@
   },
   "1cbaffde17a2": {
     "name": "Player's house stairs",
-    "shape": "stairs"
+    "shape": "stairs",
+    "to": 31
   },
   "867a68fe0e2b": {
     "name": "Player's TV",
@@ -628,7 +629,8 @@
           "a49431"
         ]
       }
-    ]
+    ],
+    "back_to_wall": false
   },
   "40c2c94d8405": {
     "name": "NES",
@@ -660,19 +662,6 @@
         "rest"
       ]
     ]
-  },
-  "1ba74eb59be9": {
-    "name": "Player's PC",
-    "animations": {
-      "turn_on": {
-        "kind": "flicker",
-        "off": "0x28F",
-        "on": "0x28A",
-        "flash": 0.1,
-        "idle": 0.6,
-        "hold": 1.2
-      }
-    }
   },
   "a2beef5c97be": {
     "name": "Chair (its back on its left)",
@@ -808,5 +797,112 @@
         "rest"
       ]
     ]
+  },
+  "cb40890c76ef": {
+    "name": "Potted palm (the player's house)",
+    "same_as": "4150f0aa319e"
+  },
+  "2186c05c9791": {
+    "name": "Potted palm (the player's house)",
+    "same_as": "4150f0aa319e"
+  },
+  "c7ec3024b71d": {
+    "name": "Player's PC on its desk, the stool under it",
+    "profile": [
+      [
+        "up",
+        15
+      ],
+      [
+        "back",
+        "rest"
+      ]
+    ],
+    "animations": {
+      "turn_on": {
+        "kind": "flicker",
+        "off": "0x28F",
+        "on": "0x28A",
+        "flash": 0.1,
+        "idle": 0.6,
+        "hold": 1.2
+      }
+    },
+    "foot": true,
+    "parts": [
+      {
+        "cols": [
+          1,
+          14
+        ],
+        "rows": [
+          0,
+          21
+        ],
+        "foot": 21,
+        "profile": [
+          [
+            "up",
+            15
+          ],
+          [
+            "back",
+            "rest"
+          ]
+        ],
+        "lift": 15
+      },
+      {
+        "cols": [
+          4,
+          12
+        ],
+        "rows": [
+          27,
+          36
+        ],
+        "foot": 36,
+        "profile": [
+          [
+            "up",
+            5
+          ],
+          [
+            "back",
+            "rest"
+          ]
+        ]
+      }
+    ],
+    "open": [
+      {
+        "cols": [
+          5,
+          12
+        ],
+        "below": 10
+      },
+      {
+        "cols": [
+          15,
+          27
+        ],
+        "below": 10
+      }
+    ]
+  },
+  "8ba5fa24c41f": {
+    "name": "TV (the player's house, downstairs: the same set as upstairs)",
+    "profile": [
+      [
+        "up",
+        16
+      ],
+      [
+        "back",
+        "rest"
+      ]
+    ],
+    "back_to_wall": false
   }
 }

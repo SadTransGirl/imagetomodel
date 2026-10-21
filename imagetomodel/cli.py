@@ -204,6 +204,15 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
     meshed from the cubes; and each thing the same, in a folder of its own."""
     from . import animate, room, voxel
     fixes = room.load_fixes(a.fixes, spec)
+    # (the game's own data: what's under each thing (its cells' bottom layers), and what's
+    # animated by swapping its metatiles)
+    game = None
+    if getattr(a, "decomp", None) and getattr(a, "map", None):
+        from .decomp import Decomp, on_screen, bottoms_on_screen
+        d = Decomp(a.decomp)
+        dm = d.map(a.map)
+        game = on_screen(d, dm, sprite.rgba, g["ox"], g["oy"])
+        info["bottom"] = bottoms_on_screen(d, dm, game[0], sprite.rgba.shape, g["ox"], g["oy"])
     grid, objs = room.build_voxels(sprite, g, info, things, front_height=front, low_height=a.low_height,
                                    wall_thick=int(a.wall_thick), spec=spec, thick=int(a.thick), fixes=fixes)
     os.makedirs(a.out, exist_ok=True)
@@ -238,12 +247,6 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
     os.makedirs(things_dir, exist_ok=True)
     made = 0
     animated = []
-    # (the game's own data, for what's animated by swapping its metatiles)
-    game = None
-    if getattr(a, "decomp", None) and getattr(a, "map", None):
-        from .decomp import Decomp, on_screen
-        d = Decomp(a.decomp)
-        game = on_screen(d, d.map(a.map), sprite.rgba, g["ox"], g["oy"])
     for k, o in enumerate(objs):
         owner = "thing-%d" % k
         mine = grid.only(owner)
