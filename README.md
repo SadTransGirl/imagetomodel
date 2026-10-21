@@ -45,7 +45,14 @@ front,back,top`) show the shape.
 
 ```sh
 imagetomodel room center-1f.png -o out
+imagetomodel room --decomp LGFR3D/external/pokefirered --map PalletTown_PlayersHouse_1F \
+    --spec specs/PalletTown_PlayersHouse_1F.json -o out
 ```
+
+Without a screenshot, `--decomp` and `--map` draw the room from the game's own data (as
+the GBA draws it, `NAME-map.png`). `specs/` holds what the reader can't tell from the
+picture for the rooms done so far (the player's house's two floors): their wall's rows,
+their rugs, their tables and stairs, which tiles are one thing.
 
 ### True voxels (the default)
 
@@ -149,7 +156,10 @@ own `building_fixes.json` does:
 - `keep`: the holes closed in it keep the picture's colours (a tab the counter's colour,
   which would otherwise be taken for the counter);
 - `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far
-  a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`, `plant`;
+  a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`, `plant`,
+  `stairs` (a staircase up along the wall, as the player's house's: a step to each tread
+  drawn, each as much higher as it's drawn, a balustrade with its handrail along its front
+  over its grey side panel, as high as the panel's drawn under its first step);
   `round_depth`: how deep a round thing is, against its width; `back_to_wall`.
 
 A **plant** (a potted palm) is built in three parts, each where the GBA draws it: its pot
@@ -164,7 +174,8 @@ A plant with no trunk (a flower) rests its crown on its pot: `"thick"` makes wha
 in it (a flower's head) that many cubes deep, `"mirror"` lays its leaves in front of what
 stands behind it too; `pot_depth` gives a pot whose top the leaves hide a square top, its
 `rim` (a colour) round the `soil`'s colour. `include` adds pixels the background check took
-(a white stem on a counter with white in it); `"outline": false` leaves a thing to its
+(a white stem on a counter with white in it; rows and columns past its box too, but those
+of the colours it lists as `except`: the rug round an NES); `"outline": false` leaves a thing to its
 picture's own outlines.
 
 ```json
@@ -287,7 +298,10 @@ thing's kind (h hanging, A against the wall, b a box, B a box standing tall, c a
 Correct it
 with `--spec`: `{"wall_rows": 2, "tiles": {"9,6": "box", "7,2": "floor"}}`, where a tile
 may be `void`, `floor`, `wall`, `wall_side`, `thing`, or `box` (a thing standing tall) and
-`counter` (a thing standing free, low) to force its kind.
+`counter` (a thing standing free, low) to force its kind. A tile said to be `floor` that
+isn't the floor's colours is a rug: on it and beside it, a thing standing there (a table,
+a chair) is cut from the rug's colours as from the floor's. `"things": [[x0, y0, x1, y1]]`
+makes the things with tiles in each box one (a bed drawn over three rows of tiles).
 
 What's written is as for a building, and besides: `NAME-labels.json` (the grid, the wall's
 rows, the labels, the things and the objects they make with their boxes), the per-thing
@@ -450,7 +464,7 @@ No Nintendo art is in this repository: the tests draw their own building.
 
 ## Next
 
-- rooms: stairs drawn as stairs (not an escalator), a person standing in the screenshot
+- rooms: the player's house's stairs down (a stairwell through the floor), a person standing in the screenshot
   (masked out), water; more fixes for the things of other rooms;
 - buildings in true voxels too;
 - more roof styles read from the art: a ridge with two slopes (a gable), the eave that

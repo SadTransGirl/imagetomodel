@@ -587,5 +587,104 @@
         ]
       }
     }
+  },
+  "1cbaffde17a2": {
+    "name": "Player's house stairs",
+    "shape": "stairs"
+  },
+  "1526ac120a64": {
+    "name": "Player's bed",
+    "profile": [
+      [
+        "up",
+        5
+      ],
+      [
+        "back",
+        "rest"
+      ]
+    ]
+  },
+  "867a68fe0e2b": {
+    "name": "Player's TV",
+    "drop": [
+      {
+        "rows": [
+          24,
+          40
+        ]
+      }
+    ],
+    "profile": [
+      [
+        "up",
+        24
+      ],
+      [
+        "back",
+        "rest"
+      ]
+    ],
+    "include": [
+      {
+        "rows": [
+          -3,
+          -1
+        ],
+        "cols": [
+          0,
+          13
+        ],
+        "except": [
+          "c5b44a",
+          "837310",
+          "a49431"
+        ]
+      }
+    ]
+  },
+  "40c2c94d8405": {
+    "name": "NES",
+    "include": [
+      {
+        "rows": [
+          -11,
+          2
+        ],
+        "cols": [
+          -3,
+          10
+        ],
+        "except": [
+          "6ac56a",
+          "e6d57b",
+          "e6eef6",
+          "5a5a73"
+        ]
+      }
+    ],
+    "profile": [
+      [
+        "up",
+        7
+      ],
+      [
+        "back",
+        "rest"
+      ]
+    ]
+  },
+  "1ba74eb59be9": {
+    "name": "Player's PC",
+    "animations": {
+      "turn_on": {
+        "kind": "flicker",
+        "off": "0x28F",
+        "on": "0x28A",
+        "flash": 0.1,
+        "idle": 0.6,
+        "hold": 1.2
+      }
+    }
   }
 }

@@ -1,0 +1,51 @@
+{
+ "_comment": "PalletTown_PlayersHouse_2F: what the room reader can't tell from the picture (tiles from the map's corner): its wall's rows, its rugs (floor: things on them are cut from their colours), its table and stairs, which tiles are one thing",
+ "wall_rows": 2,
+ "tiles": {
+  "4,4": "floor",
+  "5,4": "floor",
+  "6,4": "thing",
+  "7,4": "floor",
+  "8,4": "floor",
+  "4,5": "floor",
+  "5,5": "floor",
+  "6,5": "thing",
+  "7,5": "floor",
+  "8,5": "floor",
+  "4,6": "floor",
+  "5,6": "floor",
+  "6,6": "thing",
+  "7,6": "floor",
+  "8,6": "floor",
+  "4,7": "floor",
+  "5,7": "floor",
+  "6,7": "floor",
+  "7,7": "floor",
+  "8,7": "floor",
+  "10,2": "floor",
+  "10,3": "floor",
+  "1,4": "box",
+  "1,5": "box",
+  "1,6": "box",
+  "2,4": "box",
+  "2,5": "box",
+  "2,6": "box",
+  "3,4": "box",
+  "3,5": "box",
+  "3,6": "box"
+ },
+ "things": [
+  [
+   1,
+   4,
+   3,
+   6
+  ],
+  [
+   6,
+   4,
+   6,
+   5
+  ]
+ ]
+}

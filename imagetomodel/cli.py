@@ -44,7 +44,7 @@ def main(argv=None):
     b.add_argument("--views", default="three-quarter,side,front", help="which other views to draw (%s)" % ",".join(VIEWS))
     b.add_argument("--preview-scale", type=int, default=4)
     r = sub.add_parser("room", help="a room from a screenshot of it")
-    r.add_argument("shot")
+    r.add_argument("shot", nargs="?", help="a screenshot of the room; or none, with --decomp and --map: the map drawn from the game's data")
     r.add_argument("-o", "--out", default="out")
     r.add_argument("--name", help="the model's name (the file's name)")
     r.add_argument("--scale", type=int, help="how many times the shot was scaled up (found from its pixel blocks)")
@@ -119,6 +119,16 @@ def main(argv=None):
 
 def room_main(a):
     from . import room
+    if not a.shot:
+        # (no screenshot: the map drawn from the game's data, as the GBA draws it)
+        if not (a.decomp and a.map):
+            raise SystemExit("room: a screenshot, or --decomp and --map")
+        from .decomp import Decomp
+        d = Decomp(a.decomp)
+        os.makedirs(a.out, exist_ok=True)
+        a.shot = os.path.join(a.out, (a.name or a.map) + "-map.png")
+        d.draw(d.map(a.map)).convert("RGB").save(a.shot)
+        a.name = a.name or a.map
     sprite = Sprite.load(a.shot, scale=a.scale)
     room.mark_void(sprite)
     name = a.name or os.path.splitext(os.path.basename(a.shot))[0]

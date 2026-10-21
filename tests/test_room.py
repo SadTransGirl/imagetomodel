@@ -158,3 +158,58 @@ def test_a_flower_in_a_pot_is_a_pot_leaves_and_a_head():
     assert max(z for _, _, z in pot) - min(z for _, _, z in pot) + 1 == 6        # (its pot square)
     assert (0xd6, 0xc6, 0x6b) in g.cubes.values() and (0x52, 0x52, 0x6b) in g.cubes.values()
     assert min(y for _, y, _ in head) > max(y for _, y, _ in pot)                # (over the pot)
+
+
+class _Pic:
+    """A picture as the builders read one: {(x, y): colour}."""
+    def __init__(self, px):
+        self.px = px
+
+    def colour(self, x, y):
+        return self.px.get((x, y))
+
+
+def test_a_spec_makes_things_in_a_box_one_and_its_rugs_floor():
+    s, g, info = _labelled(spec={"wall_rows": 2, "things": [[2, 3, 8, 4]], "tiles": {"5,5": "floor"}})
+    objs = room.objects(info, g, room.runs(info, g))
+    inside = [o for o in objs if any(2 <= tx <= 8 and 3 <= ty <= 4 for tx, ty in o["tiles"])]
+    assert len(inside) == 1                                   # (the counter and what's on it, one)
+    assert (5, 5) in info["rug"] and (6, 6) in info["rug"] and (8, 8) not in info["rug"]
+
+
+def test_include_takes_a_things_rows_but_the_rug_round_it():
+    rug, grey = (106, 197, 106), (123, 123, 123)
+    pic = _Pic({(x, y): (grey if 2 <= x <= 5 else rug) for x in range(8) for y in range(4)})
+    o = {"bbox": [0, 2, 8, 4], "own": set()}
+    got = room.fix_included(pic, o, {"include": [{"rows": [-2, 1], "cols": [0, 7], "except": ["6ac56a"]}]})
+    assert got == {(x, y) for x in range(2, 6) for y in range(4)}
+
+
+def test_stairs_climb_a_step_to_each_tread_drawn():
+    from imagetomodel import voxel
+    dark, tread, light, rail, side = (82, 82, 106), (213, 197, 106), (246, 238, 148), (172, 148, 65), (180, 180, 164)
+    px = {}
+    # (4 steps of 4 columns, a dark riser then tread; each drawn 2 rows higher; under the
+    # first, a grey side panel 3 rows; the treads long runs down to row 20)
+    for k in range(4):
+        x0 = 10 + 4 * k
+        top = 10 - 2 * k
+        for x in range(x0, x0 + 4):
+            for y in range(top, 21):
+                px[(x, y)] = dark if x == x0 else tread
+            px[(x, top - 1)] = light
+        px[(x0 + 1, 21)] = rail
+    for x in range(10, 14):
+        for y in range(21, 24):
+            px[(x, y)] = side
+    pic = _Pic(px)
+    own = set(px)
+    xs, ys = [p[0] for p in own], [p[1] for p in own]
+    o = {"own": own, "bbox": [min(xs), min(ys), max(xs) + 1, max(ys) + 1]}
+    grid = voxel.Grid()
+    room.build_stairs(grid, pic, o, {}, "t")
+    tops = {}
+    for (x, y, z) in grid.cubes:
+        tops[x] = max(tops.get(x, -1), y)
+    steps = [tops[10 + 4 * k + 2] for k in range(4)]
+    assert all(b - a == 2 for a, b in zip(steps, steps[1:]))           # (2 higher a step, as drawn)
