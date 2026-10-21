@@ -11,6 +11,7 @@ plays, then taken away. Its fix says how ("animations" in fixes/rooms.json):
                             "place": 0.4, "flashes": 6, "flash": 0.15, "hold": 0.6}}
 """
 import struct
+from collections import Counter
 
 from . import voxel
 
@@ -86,13 +87,93 @@ def heal(grid, spec):
     return frames
 
 
-KINDS = {"heal": heal}
+def repaint(grid, changed):
+    """The thing with its picture changed where `changed` says ({pixel: colour}, in the
+    thing's own pixels): each cube the GBA's view sees at a pixel wearing its new colour."""
+    out = copy(grid)
+    view = voxel.gba_view(set(grid.cubes))
+    for p, c in changed.items():
+        key = view.get(p)
+        if key is not None:
+            out.cubes[key] = tuple(c)
+    return out
 
 
-def frames_of(grid, kind, spec):
+def _mid(m):
+    return int(m, 16) if isinstance(m, str) else int(m)
+
+
+def flicker(grid, spec, ctx):
+    """A PC turning on, as the game does it (field_specials.c, AnimatePcTurnOn): its screen
+    on, off, on, off, on, `flash` seconds each (6 of the GBA's frames), then on while it's
+    used (`hold`), then off. Its metatiles `off` and `on` (the Building tileset's 0x062,
+    0x063) from the game's data."""
+    off, on = _mid(spec.get("off", "0x062")), _mid(spec.get("on", "0x063"))
+    lit = repaint(grid, ctx["changed"]({cell: on for cell, mid in ctx["cells"].items() if mid == off}))
+    flash = float(spec.get("flash", 0.1))
+    frames = [(copy(grid), float(spec.get("idle", 0.6)))]
+    for k in range(5):
+        frames.append((copy(lit if k % 2 == 0 else grid), flash))
+    frames[-1] = (frames[-1][0], float(spec.get("hold", 1.2)))
+    return frames
+
+
+def cycle(grid, spec, ctx):
+    """An escalator running, as the game runs it (special_field_anim.c): each of its
+    `sections`' metatiles (the game's tables: sEscalatorMetatiles_*) moved on a stage in turn,
+    every `step` seconds (8 of the GBA's frames), up or down (`up`); from when it starts,
+    looped from the first stage that comes round again."""
+    tables = [[_mid(m) for m in t] for t in spec["sections"]]
+    up, last = bool(spec.get("up", False)), len(tables[0]) - 1
+    state = {cell: mid for cell, mid in ctx["cells"].items() if any(mid in t for t in tables)}
+    stage, seen, frames = 0, [], []
+    for _ in range(64):
+        for t in tables:
+            for cell, mid in list(state.items()):
+                if not up and mid == t[stage]:
+                    state[cell] = t[stage + 1] if stage != last else t[0]
+                elif up and mid == t[last - stage]:
+                    state[cell] = t[1 - stage] if stage != last else t[last]
+        stage = (stage + 1) % (last + 1)
+        key = (stage, tuple(sorted(state.items())))
+        if key in seen:
+            frames = frames[seen.index(key):]
+            break
+        seen.append(key)
+        frames.append(dict(state))
+    step = float(spec.get("step", 8 / 60.0))
+    changes = [ctx["changed"](f) for f in frames]
+    # (only what moves: its steps' colours trading places (`colours`, else the commonest
+    # pair that does and what trades with them often); the rest of its picture's changes
+    # (its side's panel sliding with them) are the GBA faking a slope a 3D one has)
+    pairs = Counter((tuple(ctx["old"](p)), tuple(c)) for ch in changes for p, c in ch.items())
+    if "colours" in spec:
+        moving = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in spec["colours"]}
+    elif pairs:
+        (a, b), _ = pairs.most_common(1)[0]
+        moving = {a, b}
+        total = sum(pairs.values())
+        for (x, y), n in pairs.items():
+            if n >= 0.05 * total and (x in (a, b) or y in (a, b)):
+                moving |= {x, y}
+    else:
+        moving = set()
+    return [(repaint(grid, {p: c for p, c in ch.items() if tuple(c) in moving and tuple(ctx["old"](p)) in moving}), step)
+            for ch in changes]
+
+
+KINDS = {"heal": heal, "flicker": flicker, "cycle": cycle}
+NEEDS_GAME = {"flicker", "cycle"}                       # (the game's data: its metatiles)
+
+
+def frames_of(grid, kind, spec, ctx=None):
     """A thing's frames for an animation of its fix ("animations": {name: spec}), by its
-    "kind" (or its name): heal."""
-    return KINDS[spec.get("kind", kind)](grid, spec)
+    "kind" (or its name): heal; flicker and cycle (from the game's metatiles, `ctx`: its
+    map's cells and how a picture of them with some changed differs)."""
+    kind = spec.get("kind", kind)
+    if kind in NEEDS_GAME:
+        return KINDS[kind](grid, spec, ctx)
+    return KINDS[kind](grid, spec)
 
 
 def write_gif(path, frames, texture, view=(-30.0, 35.0), scale=10):

@@ -59,6 +59,8 @@ def main(argv=None):
     r.add_argument("--tops", choices=("painted", "picture"), default="painted", help="the top of a thing standing against the wall: painted from its art, or the picture the GBA draws there (the wall's band: exact from its angle)")
     r.add_argument("--views", default="three-quarter,front", help="which other views to draw (%s)" % ",".join(VIEWS))
     r.add_argument("--preview-scale", type=int, default=4)
+    r.add_argument("--decomp", help="a copy of pret's pokefirered, for the animations drawn from the game's metatiles (a PC turning on, an escalator)")
+    r.add_argument("--map", help="the room's map in the decompilation (ViridianCity_PokemonCenter_1F), with --decomp")
     t = sub.add_parser("town", help="a town (an outdoor map) from the game's own data: pret's decompilation")
     t.add_argument("map", help="the map's folder in the decompilation's data/maps (PalletTown)")
     t.add_argument("--decomp", required=True, help="a copy of pret's pokefirered (LGFR3D's external/pokefirered)")
@@ -226,6 +228,12 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
     os.makedirs(things_dir, exist_ok=True)
     made = 0
     animated = []
+    # (the game's own data, for what's animated by swapping its metatiles)
+    game = None
+    if getattr(a, "decomp", None) and getattr(a, "map", None):
+        from .decomp import Decomp, on_screen
+        d = Decomp(a.decomp)
+        game = on_screen(d, d.map(a.map), sprite.rgba, g["ox"], g["oy"])
     for k, o in enumerate(objs):
         owner = "thing-%d" % k
         mine = grid.only(owner)
@@ -250,7 +258,14 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
         made += 1
         # (what it does: its fix's animations, each a GIF, an animated .vox and a .glb)
         for anim, aspec in sorted(room.fix_for(sprite, o, fixes, g).get("animations", {}).items()):
-            frames = animate.frames_of(moved, anim, aspec)
+            ctx = None
+            if aspec.get("kind", anim) in animate.NEEDS_GAME:
+                if game is None:
+                    print("%s %s: needs the game's data (--decomp and --map); not made" % (owner, anim))
+                    continue
+                ctx = {"cells": game[0], "old": (lambda bx, by: lambda p: sprite.colour(p[0] + bx, p[1] + by)[:3])(bx, by),
+                       "changed": (lambda bx, by: lambda st: {(x - bx, y - by): c for (x, y), c in game[1](st).items()})(bx, by)}
+            frames = animate.frames_of(moved, anim, aspec, ctx)
             animate.write_gif("%s-%s.gif" % (ostem, anim), frames, crop.rgba, scale=a.preview_scale * 2)
             animate.write_vox_frames("%s-%s.vox" % (ostem, anim), frames)
             animate.write_glb("%s-%s.glb" % (ostem, anim), frames, crop, name=anim)

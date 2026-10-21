@@ -162,3 +162,57 @@ class Decomp:
     def key(self, m, mid):
         """A metatile's name as LGFR3D's labels key it ("pallet_town:0x296")."""
         return "%s:0x%03X" % (m.primary if mid < PRIMARY_METATILES else m.secondary, mid)
+
+
+def on_screen(decomp, m, rgb, ox=0, oy=0):
+    """A map as a screenshot of it shows it (`rgb`, its pixels HxWx3; its tiles' grid from
+    (ox, oy)): ({shot's cell: the map's metatile there}, changed), where changed({cell:
+    metatile}) is {pixel: colour} where the shot would differ with those cells' metatiles
+    swapped in, in the shot's own colours (an emulator rounds the GBA's a little
+    differently). The map found where most of its cells are drawn in the shot."""
+    import numpy as np
+    rgb = np.asarray(rgb)[:, :, :3].astype(int)
+    rows, cols = (rgb.shape[0] - oy) // 16, (rgb.shape[1] - ox) // 16
+    pics = {}
+
+    def pic(mid):
+        if mid not in pics:
+            pics[mid] = np.asarray(decomp.metatile(m, mid)[0])[:, :, :3].astype(int)
+        return pics[mid]
+
+    def drawn(cx, cy, mid):
+        cell = rgb[oy + cy * 16:oy + cy * 16 + 16, ox + cx * 16:ox + cx * 16 + 16]
+        return cell.shape == (16, 16, 3) and np.abs(cell - pic(mid)).sum(axis=2).max() <= 6
+    best, at = -1, (0, 0)
+    for my in range(-rows + 1, m.height):
+        for mx in range(-cols + 1, m.width):
+            both = [(cx, cy) for cy in range(rows) for cx in range(cols)
+                    if 0 <= cx + mx < m.width and 0 <= cy + my < m.height]
+            if len(both) <= best:
+                continue
+            n = sum(1 for cx, cy in both if drawn(cx, cy, m.grid[cy + my][cx + mx]))
+            if n > best:
+                best, at = n, (mx, my)
+    mx, my = at
+    cells = {(cx, cy): m.grid[cy + my][cx + mx] for cy in range(rows) for cx in range(cols)
+             if 0 <= cx + mx < m.width and 0 <= cy + my < m.height}
+    palette = np.array(sorted({tuple(c) for c in rgb.reshape(-1, 3).tolist()}))
+
+    def snap(c):
+        d = np.abs(palette - np.array(c)).sum(axis=1)
+        return tuple(int(k) for k in (palette[d.argmin()] if d.min() <= 6 else c))
+
+    def changed(state):
+        out = {}
+        for (cx, cy), mid in state.items():
+            if cells.get((cx, cy)) == mid:
+                continue
+            new = pic(mid)
+            for j in range(16):
+                for i in range(16):
+                    x, y = ox + cx * 16 + i, oy + cy * 16 + j
+                    c = snap(new[j, i])
+                    if c != tuple(rgb[y, x]):
+                        out[(x, y)] = c
+        return out
+    return cells, changed

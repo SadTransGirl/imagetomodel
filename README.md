@@ -201,6 +201,27 @@ plays, then taken away:
 (`balls`: how many, a party's; `ball`: its top's colour and its bottom's; `place`, `flash`,
 `hold`: seconds.)
 
+What the game animates by swapping a thing's metatiles is drawn from the game's own data:
+give the room's map with `--decomp` (a copy of pret's pokefirered) and `--map`
+(`ViridianCity_PokemonCenter_1F`). The map is found in the shot, the swapped metatiles
+drawn in the shot's colours, and the cubes the GBA's view sees where they differ wear
+their new colours:
+
+```
+imagetomodel room center-1f.png --decomp LGFR3D/external/pokefirered --map ViridianCity_PokemonCenter_1F -o out
+```
+
+- `"kind": "flicker"` (the PC's, `turn_on`): it turning on as the game does it
+  (`AnimatePcTurnOn`): its metatile `off` (`0x062`) and `on` (`0x063`), its screen on,
+  off, on, off, on, `flash` seconds each (0.1, the game's 6 frames), on while it's used
+  (`hold`), after `idle`;
+- `"kind": "cycle"` (the escalator's, `run`): it running as the game runs it
+  (`special_field_anim.c`): its `sections`, the game's tables of each piece's metatiles
+  (`sEscalatorMetatiles_*`), moved on a stage in turn, `up` or down, a stage every `step`
+  seconds (0.133, 8 frames), looped; only its steps' colours change (`colours`, else the
+  commonest pair that trades places and what trades with them often), its side's panel
+  still, as a 3D one's is.
+
 ### How a room is read
 
 A screenshot of a room (the GBA's own 240×160 frame, or art drawn its way, at any scale)

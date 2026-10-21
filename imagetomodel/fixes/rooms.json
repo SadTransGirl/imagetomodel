@@ -109,6 +109,16 @@
     "sides": {
       "colour": "7b7b7b",
       "panel": "b5b5a5"
+    },
+    "animations": {
+      "turn_on": {
+        "kind": "flicker",
+        "off": "0x062",
+        "on": "0x063",
+        "flash": 0.1,
+        "idle": 0.6,
+        "hold": 1.2
+      }
     }
   },
   "ffcd5c6f8280": {
@@ -530,5 +540,52 @@
   "d14798a3bc20": {
     "name": "Pokemon Center cushion (blue)",
     "square": true
+  },
+  "fa3982de9b4d": {
+    "name": "Pokemon Center escalator",
+    "animations": {
+      "run": {
+        "kind": "cycle",
+        "up": false,
+        "step": 0.133,
+        "sections": [
+          [
+            "0x308",
+            "0x30A",
+            "0x2D0"
+          ],
+          [
+            "0x309",
+            "0x30B",
+            "0x2D1"
+          ],
+          [
+            "0x310",
+            "0x312",
+            "0x2D8"
+          ],
+          [
+            "0x311",
+            "0x313",
+            "0x2D9"
+          ],
+          [
+            "0x2E3",
+            "0x316",
+            "0x314"
+          ],
+          [
+            "0x2E4",
+            "0x317",
+            "0x315"
+          ],
+          [
+            "0x2EB",
+            "0x31E",
+            "0x31C"
+          ]
+        ]
+      }
+    }
   }
 }

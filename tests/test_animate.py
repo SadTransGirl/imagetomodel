@@ -63,3 +63,38 @@ def test_animated_glb_and_vox():
             tags.append(raw[off:off + 4])
             off += 12 + n + m
         assert tags.count(b"XYZI") == len(frames) and b"nSHP" in tags
+
+
+def _screen():
+    # (a screen 4 wide on a box: the GBA's view sees each front cube at row z - y)
+    g = voxel.Grid()
+    for x in range(4):
+        for y in range(3):
+            g.set(x, y, 5, (40, 40, 60), "t")
+    return g
+
+
+def test_a_pc_turns_on_as_the_game_flickers_it():
+    g = _screen()
+    lit = {(x, 5 - y): (150, 200, 230) for x in range(4) for y in range(3)}
+    ctx = {"cells": {(0, 0): 0x062}, "changed": lambda st: lit if st.get((0, 0)) == 0x063 else {}}
+    frames = animate.frames_of(g, "turn_on", {"kind": "flicker"}, ctx)
+    on = [any(c == (150, 200, 230) for c in f.cubes.values()) for f, _ in frames]
+    assert on == [False, True, False, True, False, True]                 # (on, off, on, off, on)
+    assert [round(d, 2) for _, d in frames] == [0.6, 0.1, 0.1, 0.1, 0.1, 1.2]
+
+
+def test_an_escalator_runs_its_stages_round_and_only_its_steps_change():
+    g = voxel.Grid()
+    dark, light, side = (82, 82, 107), (148, 148, 165), (198, 222, 206)
+    for x in range(31):
+        g.set(x, 0, 5, dark, "t")
+    # (each stage its steps' light edge 10 pixels on, and once its side's panel)
+    pictures = {s: {(x, 5): light for x in range(10 * (s - 1), 10 * s)} for s in (1, 2, 3)}
+    pictures[1][(30, 5)] = side
+    ctx = {"cells": {(0, 0): 3}, "old": lambda p: dark, "changed": lambda st: pictures[st[(0, 0)]]}
+    frames = animate.frames_of(g, "run", {"kind": "cycle", "sections": [["0x1", "0x2", "0x3"]]}, ctx)
+    assert len(frames) == 3                                                 # (its stages, looped)
+    assert all(f.cubes[(30, 0, 5)] == dark for f, _ in frames)             # (its side's panel still)
+    lit = sorted(min(k[0] for k, c in f.cubes.items() if c == light) for f, _ in frames)
+    assert lit == [0, 10, 20]                                               # (its steps moving on)
