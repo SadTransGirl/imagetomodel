@@ -357,13 +357,13 @@ def roof_box(sprite, own, kinds, x0, y0, spec):
             score[step] = sum(1 for a, b in pairs if col(a) == col(b)) / float(len(pairs))
     best = max(score.values()) if score else 0
     step = min(k for k, sc in score.items() if sc >= best - 0.02) if score else 8
+    # (from the side with more of the roof: the other may be its border, a step away)
+    sides = (-1, 1) if ca > len({x for x, _ in roof}) - cb else (1, -1)
     under = {}
     for (x, v) in hole:
-        for k in range(1, 64):
-            q = next((q for q in ((x - k * step, v), (x + k * step, v)) if q in mine), None)
-            if q:
-                under[(x, v)] = col(q)
-                break
+        q = next((q for d in sides for k in range(1, 64) for q in [(x + d * k * step, v)] if q in mine), None)
+        if q:
+            under[(x, v)] = col(q)
     # (the thing: its colours (not a run of them along the region's edge: the roof's rim lit
     # behind it), the outline round them, what that outline shuts in)
     edge = lambda p: [(p[0] + 1, p[1]), (p[0] - 1, p[1]), (p[0], p[1] + 1), (p[0], p[1] - 1)]
