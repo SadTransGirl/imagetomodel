@@ -8,6 +8,7 @@ picture staying exactly where the GBA drew it, seen from the GBA's angle. Height
 they'd be unsquashed: the game squashes rooms as it builds them (Models.build does the
 same to a model), so a row of a picture here is 16 pixels standing."""
 import hashlib
+import json
 import math
 from collections import Counter
 
@@ -767,7 +768,8 @@ def _holes(info, own, bands, keep=False):
         cols.setdefault(x, []).append(y)
     floor_colours = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in info["floor_colours"]}
     wall_colours = {tuple(int(h[i:i + 2], 16) for i in (0, 2, 4)) for h in info["wall_colours"]}
-    background = set(bands.values()) | wall_colours
+    rugs = set().union(*info["rug"].values()) if info.get("rug") else set()
+    background = set(bands.values()) | wall_colours | rugs    # (a rug's colours the floor's, between a table's legs)
     top = min(rows)
     out = {}
     for y, xs in rows.items():
@@ -1708,6 +1710,27 @@ def fix_recess(o, fix):
     return out
 
 
+def fix_stand(sprite, o, fix):
+    """A fix's recesses' "stand": {(x, v): n} of the recessed pixels that aren't the
+    recess's background (its commonest colour): the things on a shelf, standing n cubes
+    proud of its back; their dark outlines n - 1."""
+    out = {}
+    x0, y0 = o["bbox"][0], o["bbox"][1]
+    for r in fix.get("recess", []):
+        n = int(r.get("stand", 0))
+        if not n:
+            continue
+        pix = [(x, v) for (x, v) in o["own"] if r["cols"][0] <= x - x0 <= r["cols"][1] and r["rows"][0] <= v - y0 <= r["rows"][1]]
+        back = Counter(sprite.colour(*p) for p in pix).most_common(1)
+        if not back:
+            continue
+        for p in pix:
+            c = sprite.colour(*p)
+            if c != back[0][0]:
+                out[p] = max(0, n - 1) if _dark(c) else n
+    return out
+
+
 def fix_raised(sprite, o, fix):
     """A fix's "raise" (one or a list): its pixels of those colours, within its rows and
     columns."""
@@ -1838,7 +1861,134 @@ def floor_beneath(info, g, objs, floor_colours, extra=None):
     return out
 
 
-def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4, spec=None, thick=2, fixes=None, round_depth=0.5, outlines=True):
+def square_front(sprite, own, floor_colours):
+    """A box's front a rectangle down to its foot, as a box is: the rows at its foot the
+    GBA draws in the floor's colours (its shadow on the floor) taken away, and each row
+    from the foot up that's drawn narrower than the row above it (its rounded corners) made
+    as wide, the pixels added wearing the row's body colour (its commonest, not dark).
+    Returns (own, {pixel: colour} for the pixels added)."""
+    rows = {}
+    for (x, v) in own:
+        rows.setdefault(v, []).append(x)
+    if not rows:
+        return own, {}
+    own = set(own)
+    added = {}
+    for v in sorted(rows, reverse=True):
+        xs = rows[v]
+        cs = [sprite.colour(x, v) for x in xs]
+        if sum(1 for c in cs if c is not None and _alike(c, floor_colours)) >= 0.7 * len(xs):
+            own -= {(x, v) for x in xs}
+            del rows[v]
+        else:
+            break
+    if not rows:
+        return own, {}
+    foot = max(rows)
+    for v in sorted(rows, reverse=True):
+        if v - 1 not in rows:
+            break
+        lo, hi = min(rows[v]), max(rows[v])
+        above = (min(rows[v - 1]), max(rows[v - 1]))
+        if above[0] < lo or above[1] > hi:
+            body = Counter(sprite.colour(x, v) for x in rows[v] if sprite.colour(x, v) is not None and not _dark(sprite.colour(x, v))).most_common(1)
+            if not body:
+                break
+            for x in range(above[0], above[1] + 1):
+                if (x, v) not in own:
+                    own.add((x, v))
+                    added[(x, v)] = body[0][0]
+            rows[v] = list(range(above[0], above[1] + 1))
+        else:
+            break
+    return own, added
+
+
+def fix_chain(sprite, o, fixes, g=None):
+    """The fingerprints a thing's fix is looked up by: its own, then each `same_as` it
+    follows (the Center's palm's, for the player's house's)."""
+    fp = fingerprint(sprite, o, g)
+    out = [fp]
+    fix = fixes.get(fp) or fixes.get("%d,%d" % (o["columns"][0], o["rows"][0])) or {}
+    while "same_as" in fix and fix["same_as"] not in out:
+        out.append(fix["same_as"])
+        fix = fixes.get(fix["same_as"], {})
+    return out
+
+
+def load_models(folder):
+    """The models made by hand in a folder (see learn_models): {fingerprint: (name,
+    [((x, y, z), colour)] from the thing's corner and base)}."""
+    import os
+    from . import voxel
+    path = os.path.join(folder, "models.json")
+    if not os.path.exists(path):
+        return {}
+    out = {}
+    for fp, entry in json.load(open(path)).items():
+        size, cubes, pal = voxel.read_vox(os.path.join(folder, fp + ".vox"))
+        (x0, y0, z0), (x1, y1, z1) = entry["bounds"]
+        out[fp] = (entry.get("name"), [((vx + x0, vz + y0, z1 - vy), tuple(int(k) for k in pal[i - 1][:3])) for (vx, vy, vz, i) in cubes])
+    return out
+
+
+def learn_models(grid, objs, edited, sprite, g, fixes, folder):
+    """The things changed by hand in `edited` (the room's .vox back from MagicaVoxel, a
+    Grid) kept as models, one a thing, in `folder` (FP.vox, and models.json: each one's
+    name and bounds from its corner and base), to stand for that thing in every room it's
+    drawn in (--models). A thing's cubes in the edit: the cubes where the build had its own
+    (recoloured or not), and the cubes added next to them, grown out from them, each to the
+    thing that has its colour (a red cube by a pot on the counter: the counter's), else to
+    whichever it touches. Returns the names of the models kept."""
+    import os
+    from . import voxel
+    os.makedirs(folder, exist_ok=True)
+    index_path = os.path.join(folder, "models.json")
+    index = json.load(open(index_path)) if os.path.exists(index_path) else {}
+    owned = {}
+    for key, o in grid.owner.items():
+        if o.startswith("thing-"):
+            owned[key] = int(o[6:])
+    colours = {}
+    for key, k in owned.items():
+        colours.setdefault(k, set()).add(grid.cubes[key])
+    claimed = {key: k for key, k in owned.items() if key in edited.cubes}
+    added = {key for key in edited.cubes if key not in grid.cubes}
+    around = lambda k_: [(k_[0] + 1, k_[1], k_[2]), (k_[0] - 1, k_[1], k_[2]), (k_[0], k_[1] + 1, k_[2]),
+                         (k_[0], k_[1] - 1, k_[2]), (k_[0], k_[1], k_[2] + 1), (k_[0], k_[1], k_[2] - 1)]
+    for affine in (True, False):
+        grew = True
+        while grew:
+            grew = False
+            new = {}
+            for key, k in list(claimed.items()):
+                for q in around(key):
+                    if q in added and q not in claimed and q not in new and (not affine or edited.cubes[q] in colours[k]):
+                        new[q] = k
+            if new:
+                claimed.update(new)
+                grew = True
+    kept = []
+    for k, o in enumerate(objs):
+        mine = {key: c for key, c in grid.cubes.items() if owned.get(key) == k}
+        theirs = {key: edited.cubes[key] for key, kk in claimed.items() if kk == k}
+        if not theirs or theirs == mine:
+            continue
+        bx, yb, bz = o.get("origin", (0, 0, 0))
+        model = voxel.Grid()
+        for (x, y, z), c in theirs.items():
+            model.set(x - bx, y - yb, z - bz, c, "model")
+        fp = fingerprint(sprite, o, g)
+        fix = fix_for(sprite, o, fixes, g)
+        name = fix.get("name") or o["kind"]
+        voxel.write_vox(os.path.join(folder, fp + ".vox"), model)
+        index[fp] = {"name": name, "bounds": [list(b) for b in model.bounds()], "cubes": len(model)}
+        kept.append(name)
+    json.dump(index, open(index_path, "w"), indent=1)
+    return kept
+
+
+def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, wall_thick=4, spec=None, thick=2, fixes=None, round_depth=0.5, outlines=True, models=None):
     """The room as cubes (voxel.Grid), owned by "floor", "wall", "side-left", "side-right"
     and "thing-N" (N an index into objects()). See voxel.py for how a sprite is unprojected.
     `fixes` ({fingerprint or "tx,ty": fix}, see load_fixes) set a thing's shape by hand:
@@ -1847,7 +1997,8 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
     ({"colours": ["rrggbb"]}, or a list), "shape" ("box", "round", "slab", "escalator"),
     "front" (rows), "back_to_wall" (true or false), "keep" (closed holes keep the picture's
     colours), "outline" (false: none). `outlines`: every thing outlined round its sides and
-    back (voxel.outline)."""
+    back (voxel.outline). `models` (load_models): things made by hand, each standing for
+    its thing as it was made, at the thing's corner and base; nothing else done to it."""
     from . import voxel
     spec = dict(spec or {})
     fixes = fixes if fixes is not None else load_fixes(spec=spec)
@@ -1946,6 +2097,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                         grid.set(x, y, z, wall_colour(wall_h - 1 - y), side)
 
     # the things
+    modelled = set()
     heights = {}
 
     def front_h(o, fix=None):
@@ -1999,7 +2151,15 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
         shape = fix.get("shape") or ("round" if o["cutout"] else "box")
         if kind == "flat":
             continue
-        if kind == "on-wall" and not o["cutout"]:
+        (ta, tb), (ca, cb) = o["rows"], o["columns"]
+        bx, by = g["ox"] + ca * PX, g["oy"] + ta * PX
+        u = under_object(o)
+        yb = 0
+        if u is not None:
+            yb = heights.get(u) or front_h(objs[u], fix_for(sprite, objs[u], fixes, g))
+        o["origin"] = (bx, yb, by + yb)                  # (its corner and base: a model's origin)
+        model = next((models[fp] for fp in fix_chain(sprite, o, fixes, g) if fp in (models or {})), None)
+        if model is None and kind == "on-wall" and not o["cutout"]:
             # (a TV, a map: a box standing proud of the wall, moved up as far as it stands
             # out, so its picture stays where the GBA draws it; as deep as it's tall a fifth)
             x0_, y0_, x1_, y1_ = o["bbox"]
@@ -2012,12 +2172,19 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                     grid.set(x, y + d, z_face + j, c, owner)
             continue
         own_set = (set(o["own"]) | included(o, fix)) - dropped(o, fix)
-        u = under_object(o)
-        yb = 0
-        if u is not None:
-            yb = heights.get(u) or front_h(objs[u], fix_for(sprite, objs[u], fixes, g))
+        squared = {}
+        if shape == "box" and kind in ("free", "tall") and fix.get("square_front", True):
+            own_set, squared = square_front(sprite, own_set, floor_colours)
         part = voxel.Grid()
-        if shape == "stairs":
+        if model is not None:
+            # (made by hand: as it was made, at its corner, on what it stands on)
+            shape = "model"
+            modelled.add(k)
+            for (x, y, z), c in model[1]:
+                part.set(bx + x, yb + y, by + yb + z, c, owner)
+            if part.cubes:
+                heights[k] = max(y for _, y, _ in part.cubes) + 1 - yb
+        elif shape == "stairs":
             build_stairs(part, sprite, o, fix, owner)
         elif shape == "stairwell":
             # (its opening taken out of the floor)
@@ -2078,13 +2245,20 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
             rest = set(own_set)
             for prt in fix.get("parts", []):
                 rest -= {(x, v) for (x, v) in rest if prt["cols"][0] <= x - bx <= prt["cols"][1] and prt["rows"][0] <= v - by <= prt["rows"][1]}
+            fill = dict(o.get("fill") or {})
+            fill.update(squared)
             shown = voxel.unproject_profile(part, sprite, rest, kinds, back_of=back_of, owner=owner,
                                             recess=recess_of(o, fix), raised=raised_of(o, fix),
-                                            colours=None if fix.get("keep") else o.get("fill"),
-                                            stretch=stretch, foot=o["bbox"][3] if fix.get("foot") else None)
-            # (open under it, between its legs: what's below `below` in those columns)
+                                            colours=squared if fix.get("keep") else fill,
+                                            stretch=stretch, foot=o["bbox"][3] if fix.get("foot") else None,
+                                            stand=fix_stand(sprite, o, fix))
+            # (open under it, between its legs: what's below `below` in those columns, and
+            # between `z` (from its front, 0 its front row) if it says: a table's four legs)
+            zf_ = max((q[2] for q in part.cubes), default=0)
             for op in fix.get("open", []):
-                for key in [q for q in part.cubes if op["cols"][0] <= q[0] - bx <= op["cols"][1] and q[1] < int(op["below"])]:
+                za, zb = op.get("z", [0, 10 ** 6])
+                for key in [q for q in part.cubes if op["cols"][0] <= q[0] - bx <= op["cols"][1] and q[1] < int(op["below"])
+                            and za <= zf_ - q[2] <= zb]:
                     del part.cubes[key]
                     part.owner.pop(key, None)
             rest = set(own_set)
@@ -2116,9 +2290,9 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                             part.set(x, y, z, colour, owner)
                             break
         for (x, y, z), c in part.cubes.items():
-            if shape not in ("escalator", "stairs", "stairwell") and z + yb < wall_z:
+            if shape not in ("escalator", "stairs", "stairwell", "model") and z + yb < wall_z:
                 continue                              # (nothing behind the wall's face)
-            if shape in ("round", "slab", "escalator", "stairs", "stairwell"):
+            if shape in ("round", "slab", "escalator", "stairs", "stairwell", "model"):
                 grid.set(x, y, z, c, owner)
             else:
                 grid.set(x, y + yb, z + yb, c, owner)
@@ -2127,7 +2301,7 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
     hex_ = lambda h: tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
     for k, o in enumerate(objs):
         fix = fix_for(sprite, o, fixes, g)
-        if o["kind"] in ("flat", "escalator") or fix.get("shape") in ("escalator", "stairs", "stairwell"):
+        if o["kind"] in ("flat", "escalator") or fix.get("shape") in ("escalator", "stairs", "stairwell") or k in modelled:
             continue
         if "round" in fix:
             voxel.round_corners(grid, "thing-%d" % k, int(fix["round"]))
@@ -2555,12 +2729,9 @@ def build_escalator(grid, sprite, o, fix, owner):
             for y in range(0, r + 1):
                 c = dark
                 if y == r:
-                    row = z - y - 1
-                    art = sprite.colour(x, row) if (x, row) in own else None
-                    if art is not None and art in (tread, dark):
-                        c = art
-                    else:
-                        c = tread if row % 2 == parity else dark
+                    # (the grate's dashes every other row of depth, the same on every step:
+                    # the stripes run on up the escalator as one, not offset a step)
+                    c = tread if (z - 1) % 2 == parity else dark
                 grid.set(x, y, z, c, owner)
         # the balustrades: glass, its handrail along the top, its edges dark
         for zb in ((z_far - 1, z_far), (z_near - 2, z_near - 1)):

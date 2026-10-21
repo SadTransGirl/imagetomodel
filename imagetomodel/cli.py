@@ -60,6 +60,8 @@ def main(argv=None):
     r.add_argument("--views", default="three-quarter,front", help="which other views to draw (%s)" % ",".join(VIEWS))
     r.add_argument("--preview-scale", type=int, default=4)
     r.add_argument("--decomp", help="a copy of pret's pokefirered, for the animations drawn from the game's metatiles (a PC turning on, an escalator)")
+    r.add_argument("--models", help="a folder of things made by hand (from --learn), each standing for its thing wherever it's drawn")
+    r.add_argument("--learn", help="the room's .vox back from MagicaVoxel: the things changed in it kept as models in --models")
     r.add_argument("--map", help="the room's map in the decompilation (ViridianCity_PokemonCenter_1F), with --decomp")
     t = sub.add_parser("town", help="a town (an outdoor map) from the game's own data: pret's decompilation")
     t.add_argument("map", help="the map's folder in the decompilation's data/maps (PalletTown)")
@@ -213,8 +215,20 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
         dm = d.map(a.map)
         game = on_screen(d, dm, sprite.rgba, g["ox"], g["oy"])
         info["bottom"] = bottoms_on_screen(d, dm, game[0], sprite.rgba.shape, g["ox"], g["oy"])
-    grid, objs = room.build_voxels(sprite, g, info, things, front_height=front, low_height=a.low_height,
-                                   wall_thick=int(a.wall_thick), spec=spec, thick=int(a.thick), fixes=fixes)
+    models = room.load_models(a.models) if getattr(a, "models", None) else {}
+    build = lambda ms: room.build_voxels(sprite, g, info, things, front_height=front, low_height=a.low_height,
+                                         wall_thick=int(a.wall_thick), spec=spec, thick=int(a.thick), fixes=fixes, models=ms)
+    learned = []
+    if getattr(a, "learn", None):
+        # (what was changed by hand, against the room built without the models: kept, then
+        # the room built with them)
+        if not a.models:
+            raise SystemExit("room: --learn needs --models, the folder to keep the models in")
+        plain, pobjs = build({})
+        edited = voxel.grid_from_vox(a.learn, plain.bounds())
+        learned = room.learn_models(plain, pobjs, edited, sprite, g, fixes, a.models)
+        models = room.load_models(a.models)
+    grid, objs = build(models)
     os.makedirs(a.out, exist_ok=True)
     stem = os.path.join(a.out, name)
     with open(stem + "-labels.json", "w") as f:
@@ -298,6 +312,10 @@ def room_voxel_main(a, sprite, name, spec, g, info, things, front):
         print("set by hand (fixes): %s" % ", ".join(fixed))
     if animated:
         print("animated (a GIF, .vox and .glb each, in its folder): %s" % ", ".join(animated))
+    if learned:
+        print("learnt from %s (kept in %s): %s" % (a.learn, a.models, ", ".join(learned)))
+    if models:
+        print("made by hand (models): %s" % ", ".join(sorted({models[fp][0] for fp in models})))
     return 0
 
 

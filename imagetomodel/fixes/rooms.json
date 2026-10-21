@@ -22,7 +22,8 @@
           4,
           25
         ],
-        "depth": 3
+        "depth": 3,
+        "stand": 2
       },
       {
         "rows": [
@@ -33,7 +34,8 @@
           4,
           25
         ],
-        "depth": 3
+        "depth": 3,
+        "stand": 2
       },
       {
         "rows": [
@@ -531,7 +533,8 @@
   },
   "e65272973e3a": {
     "name": "Pokemon Center counter",
-    "round": 5
+    "round": 5,
+    "back_to_wall": true
   },
   "65beea31cf87": {
     "name": "Pokemon Center cushion (yellow)",
@@ -737,19 +740,38 @@
         "rest"
       ]
     ],
-    "recess": [
+    "open": [
       {
-        "rows": [
-          27,
+        "cols": [
+          5,
+          25
+        ],
+        "below": 5
+      },
+      {
+        "cols": [
+          0,
+          4
+        ],
+        "below": 5,
+        "z": [
+          2,
+          24
+        ]
+      },
+      {
+        "cols": [
+          26,
           29
         ],
-        "cols": [
-          4,
+        "below": 5,
+        "z": [
+          2,
           24
-        ],
-        "depth": 21
+        ]
       }
-    ]
+    ],
+    "foot": true
   },
   "31acc3a50b42": {
     "name": "Player's bed",

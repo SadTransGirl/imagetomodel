@@ -379,9 +379,21 @@ def read_vox(path):
     return size, cubes, palette
 
 
+def grid_from_vox(path, bounds, owner="vox"):
+    """A .vox written by write_vox and edited (in MagicaVoxel), back as a Grid in the
+    grid's own coordinates: `bounds` the bounds of the grid it was written from (the
+    .vox keeps none)."""
+    (x0, y0, z0), (x1, y1, z1) = bounds
+    size, cubes, pal = read_vox(path)
+    g = Grid()
+    for (vx, vy, vz, i) in cubes:
+        g.set(vx + x0, vz + y0, z1 - vy, tuple(int(k) for k in pal[i - 1][:3]), owner)
+    return g
+
+
 # --- a profile: each row of a thing standing or lying ---
 
-def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None, stretch=1.0, foot=None, inset=None):
+def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess=None, raised=None, colours=None, stretch=1.0, foot=None, inset=None, stand=None):
     """A thing's cubes, row by row up each column from its foot: `kind_of(x, v)` says
     whether row v stands ("up": a cube on top of the last, its front face the pixel) or lies
     ("back": a cube behind the last, its top face the pixel). A box is its front rows up and
@@ -401,11 +413,26 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
     `foot`: the row every column starts up from (the thing's foot), rows with nothing drawn
     in a column going by as the others' do: a roof's edge past its walls lies with the roof
     (else each column starts at its own lowest pixel).
-    Returns {(x, v): (y, z)}, the cube each pixel is shown on."""
+    `stand`: {(x, v): n} recessed pixels standing n cubes proud of the recess's back (the
+    things on a shelf, not its back wall).
+    A dark outline pixel at either end of a row that lies (the sprite's silhouette round
+    its top) wears the row's body colour: a top has no dark stripe down its edges, its
+    edge is the side's. Returns {(x, v): (y, z)}, the cube each pixel is shown on."""
     recess = recess or {}
     raised = raised or set()
+    stand = stand or {}
     cols = _columns(own)
     outline = _darkest(sprite, own)
+    row_ends = {}
+    row_body = {}
+    for (x, v) in own:
+        lo, hi = row_ends.get(v, (x, x))
+        row_ends[v] = (min(lo, x), max(hi, x))
+    for v in row_ends:
+        cs = Counter(((colours or {}).get((x, v)) or sprite.colour(x, v)) for x in range(row_ends[v][0], row_ends[v][1] + 1) if (x, v) in own)
+        light = [c for c in cs if c is not None and not _dark(c)]
+        if light:
+            row_body[v] = max(light, key=lambda c: cs[c])
     shown = {}
     placed = {}                                        # (x, y, z) -> colour, before filling
     heights = {}                                       # (x, z) -> height of the solid there
@@ -442,6 +469,11 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                     if (x, v) in raised:
                         placed[(x, y, z - k)] = c
                         proud.add((x, y, z - k))
+                    # (standing proud of a recess's back: a thing on a shelf)
+                    for j in range(1, min(stand.get((x, v), 0), k) + 1):
+                        placed[(x, y, z - 1 - k + j)] = c
+                        proud.add((x, y, z - 1 - k + j))
+                        hollow.discard((x, y, z - 1 - k + j))
                 shown[(x, v)] = cell
                 heights[(x, cell[1])] = max(heights.get((x, cell[1]), 0), cell[0] + 1)
                 y += 1
@@ -455,6 +487,8 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                 # the gap to the rim)
                 k = min(recess.get((x, v), 0), y - 1)
                 cell = (y - 1 - k, z - 1 - k)
+                if c is not None and _dark(c) and x in row_ends.get(v, ()) and v in row_body:
+                    c = row_body[v]                    # (its top's edge: the row's body, not the outline)
                 if c is not None and not (last == "up" and (x,) + cell in placed):
                     placed[(x,) + cell] = c
                     for j in range(k):
@@ -509,9 +543,10 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
                 continue
             placed[(x, yy, zz)] = body if zz == zmin[x] else mids.get(yy, outline)
             filled.add((x, yy, zz))
-    # (its sides at each height the colour its front's edge is there, the first inside its
-    # outline from that side: a panel plain where the front's middle is a screen, a band
-    # running on round the corner where the front is banded)
+    # (its sides at each height the colour its front wears there: its edge's where that
+    # runs two or more pixels in (a machine's white pillar, a band running on round the
+    # corner), else the row's commonest (a pixel of highlight or shade down the front's
+    # edge is the GBA's rounding of it, not a stripe down its side))
     edge = {}
     for (x, yy), c in upright.items():
         edge.setdefault(yy, []).append((x, c))
@@ -520,7 +555,10 @@ def unproject_profile(grid, sprite, own, kind_of, back_of=None, owner="", recess
         row.sort()
         light = [c for _, c in row if not _dark(c)]
         if light:
-            side[yy] = (light[0], light[-1])
+            body = Counter(light).most_common(1)[0][0]
+            left = light[0] if len(light) > 1 and light[1] == light[0] else body
+            right = light[-1] if len(light) > 1 and light[-2] == light[-1] else body
+            side[yy] = (left, right)
     ends = {}
     for (x, yy, zz) in placed:
         lo, hi = ends.get((yy, zz), (x, x))

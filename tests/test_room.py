@@ -299,3 +299,44 @@ def test_stairs_climb_to_the_floor_above_if_told():
     room.build_stairs(grid, pic, o, {"to": 20, "rail": 0}, "t")
     top = max(y for (x, y, z) in grid.cubes if x == 23)
     assert top == 20
+
+
+
+def test_a_boxs_front_is_squared_to_its_foot_and_its_floor_shadow_dropped():
+    body, dark, floor = (200, 160, 60), (40, 40, 60), (230, 222, 156)
+    px = {}
+    for y in range(6):
+        for x in range(10):
+            px[(x, y)] = dark if x in (0, 9) else body
+    for x in range(1, 9):
+        px[(x, 6)] = dark if x in (1, 8) else body        # (a row narrower: a rounded corner)
+    for x in range(0, 10):
+        px[(x, 7)] = floor                                # (its shadow on the floor)
+    pic = _Pic(px)
+    own, added = room.square_front(pic, set(px), {floor})
+    assert not any(v == 7 for _, v in own)                # (the shadow row gone)
+    assert (0, 6) in own and (9, 6) in own and added[(0, 6)] == body
+
+
+def test_things_changed_by_hand_are_learnt_and_placed_again():
+    from imagetomodel import voxel
+    s, g, info = _labelled()
+    things = room.runs(info, g)
+    grid, objs = room.build_voxels(s, g, info, things)
+    k = next(k for k, o in enumerate(objs) if o["kind"] == "free" and o["columns"] == [9, 9])
+    edited = voxel.Grid()
+    edited.cubes, edited.owner = dict(grid.cubes), dict(grid.owner)
+    mine = [key for key, o in grid.owner.items() if o == "thing-%d" % k]
+    top = max(key[1] for key in mine)
+    for key in mine:                                      # (a hat on it, and recoloured)
+        if key[1] == top:
+            edited.set(key[0], top + 1, key[2], (250, 10, 10), "x")
+            edited.cubes[key] = (10, 10, 250)
+    with tempfile.TemporaryDirectory() as d:
+        kept = room.learn_models(grid, objs, edited, s, g, {}, d)
+        assert kept == [objs[k]["kind"]]
+        models = room.load_models(d)
+        grid2, objs2 = room.build_voxels(s, g, info, things, models=models)
+    again = {key: c for key, c in grid2.cubes.items() if grid2.owner[key] == "thing-%d" % k}
+    theirs = {key: edited.cubes[key] for key in edited.cubes if key in mine or key[1] == top + 1 and (key[0], top, key[2]) in mine}
+    assert again == theirs

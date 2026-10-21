@@ -165,8 +165,9 @@ own `building_fixes.json` does:
 - `parts`: regions (`cols`, `rows` from its box's corner) built by a `profile` of their own
   up from their own `foot` row, `lift`ed that many cubes along the line of sight (a PC on a
   desk, a stool under it); `foot`: true builds the rest from the thing's common foot (a
-  desk's apron over the space between its legs); `open`: `cols` emptied `below` a height
-  (the space under a desk);
+  desk's apron over the space between its legs); `open`: `cols` emptied `below` a height,
+  between `z` from its front if given (the space under a desk; a table's four legs);
+  `square_front`: false leaves a box's front as drawn;
 - `drop`: pixels that aren't the thing's; `front`: its front's height; `depth`: how far
   a thing on the wall stands out; `shape`: `box`, `round`, `slab`, `escalator`, `plant`,
   `stairs` (a staircase up along the wall, as the player's house's: a step to each tread
@@ -208,6 +209,30 @@ Center's counter, shelf, PC, healing machine, nurse's PC, potted palm, flowers a
 
 `--style faces` builds the earlier way instead: boxes with their sides painted from the
 art and their faces in relief.
+
+### Things made by hand, kept and placed again
+
+Open a room's `.vox` in MagicaVoxel, change what you like, and give it back:
+
+```sh
+imagetomodel room center-1f.png --learn center-1f-edited.vox --models models/ -o out
+```
+
+Each thing changed in it is kept in `models/` (`FP.vox` by its fingerprint, and
+`models.json`), and from then on `--models models/` places that model for that thing in
+every room it's drawn in, at the thing's corner, on what it stands on, with nothing else
+done to it (the Center's flowers, cushions and counter as you made them; a `same_as` thing
+takes its base's model). A thing's cubes in the edit are the cubes where the build had its
+own and the cubes added next to them, each to the thing that has its colour. Keep the
+folder with the game's art, not here.
+
+What the edits taught, the generator now does for every thing: a side wears its band's
+body colour, not the pixel of highlight or shade down the front's edge (the GBA's
+rounding); a top has no dark stripe down its left and right edges (its outline is the
+side's corner); a box's front is a rectangle down to its foot, the rows the GBA draws
+narrower at its foot (rounded corners) made as wide, and its shadow on the floor (the rows
+in the floor's or rug's colours) left to the floor; the things on a shelf stand proud of
+its back (`"stand": 2` on a recess); an escalator's stripes run on as one.
 
 ### Things that do something: animations
 

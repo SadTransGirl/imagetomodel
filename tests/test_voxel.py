@@ -150,7 +150,8 @@ def test_a_stepped_profile_stands_and_lies_in_turn():
     kinds = voxel.segments_kinds([["up", 3], ["back", 4], ["up", "rest"]], 13)
     shown = voxel.unproject_profile(g, s, own, kinds)
     score, _ = faithful(voxel.mesh_of(g, strip_v=16, strip_w=16), s)
-    assert score["exact"] == 1.0, score
+    # (the dark ends of the rows that lie wear the colour next in: a little less exact)
+    assert score["exact"] >= 0.9, score
     # (a lip three tall, a tray four deep behind it, a panel standing behind that)
     col = sorted((y, z) for (x, y, z) in g.cubes if x == 6)
     assert max(y for y, z in col if z == 12) == 2
@@ -417,3 +418,52 @@ def test_a_column_drawn_only_high_starts_at_the_things_foot():
     shown = voxel.unproject_profile(g, s, own, kinds, foot=13)
     # (its left column's top lies with the others' tops, not stood up from its own lowest)
     assert shown[(2, 4)] == shown[(6, 4)]
+
+
+
+def _front(colours, rows=6):
+    """A sprite of a box's front: each row the given colours across (a list a column)."""
+    im = np.zeros((rows, len(colours), 4), dtype=np.uint8)
+    for x, c in enumerate(colours):
+        im[:, x, :3] = c
+    im[:, :, 3] = 255
+    return Sprite(Image.fromarray(im, "RGBA"), scale=1)
+
+
+def test_a_side_wears_the_bands_body_not_the_fronts_edge_pixel():
+    body, light, dark = (200, 160, 60), (255, 255, 240), (40, 40, 60)
+    s = _front([dark, light, body, body, body, body, body, body, dark])
+    own = {(x, y) for y in range(6) for x in range(9)}
+    g = voxel.Grid()
+    voxel.unproject_profile(g, s, own, voxel.segments_kinds([["up", 3], ["back", "rest"]], 6))
+    left = {c for (x, y, z), c in g.cubes.items() if x == 0 and y < 3 and z < 5}
+    assert light not in left                              # (a pixel of highlight: not a stripe down the side)
+    # (two pixels of it: a panel, carried round)
+    s2 = _front([dark, light, light, body, body, body, body, body, dark])
+    g2 = voxel.Grid()
+    voxel.unproject_profile(g2, s2, own, voxel.segments_kinds([["up", 3], ["back", "rest"]], 6))
+    assert light in {c for (x, y, z), c in g2.cubes.items() if x == 0 and y < 3 and z < 5}
+
+
+def test_a_tops_edges_wear_the_colour_next_in_not_the_outline():
+    body, dark = (200, 160, 60), (40, 40, 60)
+    s = _front([dark, body, body, body, body, dark])
+    own = {(x, y) for y in range(6) for x in range(6)}
+    g = voxel.Grid()
+    voxel.unproject_profile(g, s, own, voxel.segments_kinds([["up", 2], ["back", "rest"]], 6))
+    top = [(x, c) for (x, y, z), c in g.cubes.items() if y == 1 and z < 4]
+    assert all(c == body for x, c in top if x in (0, 5))    # (no dark stripe down the top's edges)
+    assert any(c == dark for (x, y, z), c in g.cubes.items() if y < 2 and x == 0)   # (the front's corner still dark)
+
+
+def test_things_on_a_shelf_stand_proud_of_its_back():
+    back, item = (120, 120, 120), (220, 60, 60)
+    s = _front([back, back, item, item, back, back], rows=4)
+    own = {(x, y) for y in range(4) for x in range(6)}
+    g = voxel.Grid()
+    recess = {(x, y): 3 for x in range(6) for y in range(4)}
+    stand = {(x, y): 2 for x in (2, 3) for y in range(4)}
+    voxel.unproject_profile(g, s, own, voxel.segments_kinds([["up", "rest"]], 4), recess=recess, stand=stand)
+    depths = sorted({z for (x, y, z), c in g.cubes.items() if c == item})
+    assert len(depths) == 3                               # (the item 3 deep: its back and 2 proud)
+    assert len({z for (x, y, z), c in g.cubes.items() if c == back and x == 0}) == 1   # (the back wall, 1)
