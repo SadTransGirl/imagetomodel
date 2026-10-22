@@ -2272,6 +2272,12 @@ def build_voxels(sprite, g, info, things, front_height="auto", low_height=8.0, w
                 got = voxel.unproject_profile(tmp, sprite, pix, voxel.segments_kinds(prt["profile"], foot), owner=owner,
                                               colours=None if fix.get("keep") else o.get("fill"), foot=foot)
                 lift = int(prt.get("lift", 0))
+                # (`deep`: the part's standing cubes carried back that many: a chair's back,
+                # drawn as its front face alone, as deep as its seat)
+                for z_back in range(1, int(prt.get("deep", 1))):
+                    for (x, y, z), c in list(tmp.cubes.items()):
+                        if (x, y, z - z_back) not in tmp.cubes and (x, y, z + 1) not in tmp.cubes:
+                            tmp.set(x, y, z - z_back, c, owner)
                 for (x, y, z), c in tmp.cubes.items():
                     part.set(x, y + lift, z + lift, c, owner)
                 shown.update({q: (y + lift, z + lift) for q, (y, z) in got.items()})

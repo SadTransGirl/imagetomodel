@@ -164,7 +164,8 @@ own `building_fixes.json` does:
   Center's potted palm);
 - `parts`: regions (`cols`, `rows` from its box's corner) built by a `profile` of their own
   up from their own `foot` row, `lift`ed that many cubes along the line of sight (a PC on a
-  desk, a stool under it); `foot`: true builds the rest from the thing's common foot (a
+  desk, a stool under it), their standing cubes carried `deep` cubes back (a chair's back,
+  drawn as its front alone, as deep as its seat); `foot`: true builds the rest from the thing's common foot (a
   desk's apron over the space between its legs); `open`: `cols` emptied `below` a height,
   between `z` from its front if given (the space under a desk; a table's four legs);
   `square_front`: false leaves a box's front as drawn;
